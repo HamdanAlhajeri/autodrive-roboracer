@@ -1,0 +1,53 @@
+version: "3.9"
+
+# Production compose — mirrors the manual docker run commands from the guide.
+# Usage:
+#   xhost local:root
+#   docker compose up
+#
+# Both services share the host network so they can talk over 127.0.0.1:4567.
+
+x-common: &common
+  network_mode: host
+  ipc: host
+  privileged: true
+  environment:
+    - DISPLAY
+  volumes:
+    - /tmp/.X11-unix:/tmp/.X11-unix:rw
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+services:
+  simulator:
+    <<: *common
+    image: autodriveecosystem/autodrive_roboracer_sim:2026-icra-practice
+    container_name: autodrive_roboracer_sim
+    entrypoint: ["/bin/bash", "-c", "./AutoDRIVE\\ Simulator.x86_64"]
+
+  devkit:
+    <<: *common
+    image: autodriveecosystem/autodrive_roboracer_api:2026-icra-practice
+    container_name: autodrive_roboracer_api
+    entrypoint: ["/bin/bash", "-c", "ros2 launch autodrive_roboracer bringup_graphics.launch.py"]
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ./src:/home/autodrive_devkit/src/my_packages
+    depends_on:
+      - simulator
+
+  docs:
+    build:
+      context: docs
+      dockerfile: Dockerfile
+    container_name: autodrive_docs
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./docs/source:/docs/source   # live-reload on host edits
+    restart: unless-stopped

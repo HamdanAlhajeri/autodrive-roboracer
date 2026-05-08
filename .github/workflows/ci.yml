@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install linters
+        run: pip install flake8
+
+      - name: Lint racer_node.py
+        run: flake8 src/my_team_racer/my_team_racer/racer_node.py --max-line-length=100
+
+  build:
+    runs-on: ubuntu-22.04
+    container:
+      image: ros:humble
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          apt-get update -q
+          apt-get install -y python3-pip python3-numpy
+          pip install setuptools
+
+      - name: Build package
+        run: |
+          . /opt/ros/humble/setup.sh
+          cd src
+          colcon build --packages-select my_team_racer

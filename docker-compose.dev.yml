@@ -1,0 +1,55 @@
+version: "3.9"
+
+# Development override — opens interactive shells instead of auto-launching.
+# Usage:
+#   xhost local:root
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm devkit
+#
+# Inside the devkit shell:
+#   colcon build --packages-select my_team_racer
+#   source install/setup.bash
+#   ros2 launch my_team_racer racer.launch.py
+#
+# Run tests only (no display needed):
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm test
+
+services:
+  simulator:
+    entrypoint: ["/bin/bash"]
+    stdin_open: true
+    tty: true
+
+  devkit:
+    entrypoint: ["/bin/bash"]
+    stdin_open: true
+    tty: true
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ./src:/home/autodrive_devkit/src/my_packages
+
+  # Build static HTML docs into docs/build/html (no server)
+  docs-build:
+    build:
+      context: docs
+      dockerfile: Dockerfile
+    volumes:
+      - ./docs/source:/docs/source
+      - ./docs/build:/docs/build
+    entrypoint: ["sphinx-build", "-b", "html", "source", "build/html"]
+
+  # Headless test runner — no GPU / display required
+  test:
+    image: autodriveecosystem/autodrive_roboracer_api:2026-icra-practice
+    network_mode: host
+    ipc: host
+    volumes:
+      - ./src:/home/autodrive_devkit/src/my_packages
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        cd /home/autodrive_devkit
+        colcon build --packages-select my_team_racer --symlink-install
+        source install/setup.bash
+        pytest src/my_packages/my_team_racer/test/ -v

@@ -1,0 +1,10 @@
+/* Widen the content area slightly */
+.wy-nav-content { max-width: 900px; }
+
+/* Monospace code blocks */
+code, .highlight pre { font-size: 0.88em; }
+
+/* Subtle note / tip admonition colours */
+.rst-content .note .admonition-title  { background: #2980b9; }
+.rst-content .tip  .admonition-title  { background: #27ae60; }
+.rst-content .warning .admonition-title { background: #e67e22; }
