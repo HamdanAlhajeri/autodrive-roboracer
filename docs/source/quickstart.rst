@@ -81,13 +81,45 @@ Step 6 — Start both containers
 
    docker compose up
 
-This launches the Unity simulator and the ROS 2 devkit simultaneously.
-The devkit will automatically build ``my_team_racer`` and start the racer node.
+This starts three containers:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - Container
+     - What it does
+   * - ``autodrive_roboracer_sim``
+     - Unity simulator — opens the racetrack window
+   * - ``autodrive_roboracer_api``
+     - ROS 2 devkit — builds your package then launches the racer node
+   * - ``autodrive_docs``
+     - Sphinx docs server at ``http://localhost:8000``
+
+.. note::
+
+   The devkit container takes **15–30 seconds** to appear in ``docker ps`` because
+   it compiles the ROS 2 package before starting the nodes.
+   Check progress with:
+
+   .. code-block:: bash
+
+      docker logs -f autodrive_roboracer_api
+
+   Wait until you see:
+
+   .. code-block:: text
+
+      [devkit] Building my_team_racer...
+      Finished <<< my_team_racer
+      [devkit] Launching autodrive bringup...
+      [devkit] Launching racer node...
+      [racer_node]: RacerNode started — pure pursuit via LiDAR
 
 Step 7 — Connect in the simulator GUI
 --------------------------------------
 
-When the simulator window opens:
+Once the simulator window is open and the devkit log shows *"RacerNode started"*:
 
 1. Leave the IP field as ``127.0.0.1`` and the port as ``4567``.
 2. Click **Connection** — both windows should show *"Connected!"*.
@@ -97,7 +129,14 @@ Your car is now lapping autonomously driven by ``racer_node.py``.
 
 .. tip::
 
-   Watch live node output with ``docker logs -f autodrive_roboracer_api``.
+   Stream live steering/throttle commands:
+
+   .. code-block:: bash
+
+      docker exec -it autodrive_roboracer_api bash -c \
+        "source /opt/ros/humble/setup.bash && \
+         source /home/autodrive_devkit/install/setup.bash && \
+         ros2 topic echo /autodrive/roboracer_1/steering_command"
 
 Step 8 — Stop everything
 --------------------------
@@ -106,25 +145,43 @@ Step 8 — Stop everything
 
    docker compose down
 
-   # or kill individual containers
-   docker kill autodrive_roboracer_sim autodrive_roboracer_api
+Step 9 — Restarting after a reboot
+------------------------------------
+
+X11 access is reset on every login. Always run this first:
+
+.. code-block:: bash
+
+   xhost local:root
+   docker compose up
+
+If the devkit container exited and you want to restart only it without stopping
+the simulator:
+
+.. code-block:: bash
+
+   docker compose up devkit
 
 Troubleshooting
 ---------------
 
 .. list-table::
    :header-rows: 1
-   :widths: 40 60
+   :widths: 42 58
 
    * - Problem
      - Fix
    * - ``permission denied`` on ``docker ps``
      - Run ``newgrp docker`` or log out and back in after ``sudo usermod -aG docker $USER``
+   * - Devkit not visible in ``docker ps`` after ``docker compose up``
+     - It exited immediately. Check why: ``docker logs autodrive_roboracer_api``. Most likely cause: forgot ``xhost local:root`` before starting, or stale container — run ``docker compose down`` then ``docker compose up`` again
+   * - Devkit shows ``ros2: command not found`` in logs
+     - You are running an old version of ``docker-compose.yml``. Pull the latest from git — the entrypoint now sources ``/opt/ros/humble/setup.bash`` before launching
    * - Simulator window does not open
-     - Run ``xhost local:root`` before starting the container
-   * - *"Connected!"* never appears
-     - Confirm both containers use ``--network=host`` (checked in ``docker-compose.yml``)
+     - Run ``xhost local:root`` before starting the containers
+   * - *"Connected!"* never appears in simulator
+     - Confirm both containers use ``network_mode: host`` (already set in ``docker-compose.yml``). Check ``docker logs autodrive_roboracer_api`` for bridge errors
    * - ``nvidia-smi`` not found in container
-     - NVIDIA drivers missing — run ``sudo ubuntu-drivers autoinstall`` and reboot
+     - NVIDIA drivers not installed — run ``sudo ubuntu-drivers autoinstall`` and reboot
    * - Container name already in use
-     - Run ``docker rm autodrive_roboracer_sim`` or ``docker rm autodrive_roboracer_api``
+     - Run ``docker compose down`` to clear all containers, then ``docker compose up``

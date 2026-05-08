@@ -34,7 +34,21 @@ services:
     <<: *common
     image: autodriveecosystem/autodrive_roboracer_api:2026-icra-practice
     container_name: autodrive_roboracer_api
-    entrypoint: ["/bin/bash", "-c", "ros2 launch autodrive_roboracer bringup_graphics.launch.py"]
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        source /opt/ros/humble/setup.bash
+        set -e
+        cd /home/autodrive_devkit
+        echo "[devkit] Building my_team_racer..."
+        colcon build --packages-select my_team_racer --symlink-install
+        source install/setup.bash
+        echo "[devkit] Launching autodrive bringup..."
+        ros2 launch autodrive_roboracer bringup_graphics.launch.py &
+        sleep 4
+        echo "[devkit] Launching racer node..."
+        exec ros2 launch my_team_racer racer.launch.py
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - ./src:/home/autodrive_devkit/src/my_packages
