@@ -42,6 +42,6 @@ Architecture at a glance
    │  autodrive_roboracer_api    │   ROS 2 Humble
    │  (devkit container)         │
    │  • autodrive_bridge node    │   bridges socket ↔ ROS topics
-   │  • YOUR racer_node          │   pure pursuit algorithm
+   │  • YOUR racer_node          │   pure pursuit / follow-the-gap
    │  • rviz2                    │   visualisation
    └─────────────────────────────┘

@@ -17,20 +17,33 @@ RacerNode
 
 .. list-table::
    :header-rows: 1
-   :widths: 35 65
+   :widths: 45 55
 
    * - Member
      - Description
    * - ``__init__()``
-     - Creates subscriptions and publishers, logs startup message.
+     - Creates subscriptions and publishers, logs startup message including active algorithm.
    * - ``_lidar_cb(msg)``
-     - Called on every LaserScan. Pre-processes ranges, calls steering/throttle helpers, publishes.
+     - Called on every LaserScan. Pre-processes ranges, dispatches to the active steering
+       function based on ``ALGORITHM``, then publishes throttle and steering.
    * - ``_pure_pursuit_steer(ranges, angle_min, angle_inc)``
-     - Returns a steering value in ``[-1, 1]``. See :ref:`algorithm-walkthrough`.
+     - Wall-following centerline algorithm. Returns steering in ``[-1, 1]``.
+       See :ref:`pure-pursuit-math`.
+   * - ``_gap_follow_steer(ranges, angles, angle_inc)``
+     - Follow-the-Gap algorithm. Returns steering in ``[-1, 1]``.
+       See :ref:`gap-follow-math`.
    * - ``_speed_from_steer(steering)``
-     - Returns a throttle value in ``[MIN_THROTTLE, MAX_THROTTLE]``.
+     - Shared throttle scheduler. Returns throttle in ``[MIN_THROTTLE, MAX_THROTTLE]``.
 
-.. _algorithm-walkthrough:
+Algorithm selector
+~~~~~~~~~~~~~~~~~~
+
+Set ``ALGORITHM`` at the top of ``racer_node.py`` to switch between implementations:
+
+.. code-block:: python
+
+   ALGORITHM = "gap_follow"    # recommended — handles hairpins
+   ALGORITHM = "pure_pursuit"  # original wall-following baseline
 
 Tunable constants
 ~~~~~~~~~~~~~~~~~
@@ -38,14 +51,51 @@ Tunable constants
 Defined at module level in ``racer_node.py``.
 Change these values and rebuild the package — no other file needs editing.
 
-.. code-block:: python
+.. list-table::
+   :header-rows: 1
+   :widths: 28 12 12 48
 
-   LOOKAHEAD_DIST  = 0.8    # metres
-   MAX_THROTTLE    = 0.6    # [0, 1]
-   MIN_THROTTLE    = 0.15
-   STEER_GAIN      = 1.2
-   THROTTLE_DECAY  = 2.5
-   WALL_CLIP_DIST  = 4.0    # metres
+   * - Constant
+     - Default
+     - Used by
+     - Effect
+   * - ``LOOKAHEAD_DIST``
+     - ``1.0``
+     - pure_pursuit
+     - Metres ahead on the estimated centreline to steer toward.
+       Longer = smoother but reacts later to curves.
+   * - ``MAX_THROTTLE``
+     - ``0.15``
+     - both
+     - Top speed on straights (range 0–1).
+   * - ``MIN_THROTTLE``
+     - ``0.07``
+     - both
+     - Floor speed so the car never stalls in tight corners.
+   * - ``STEER_GAIN``
+     - ``1.4``
+     - both
+     - Proportional gain on the heading error or gap angle.
+       Raise to react faster; lower to reduce oscillation.
+   * - ``THROTTLE_DECAY``
+     - ``4.5``
+     - both
+     - Exponential decay rate on throttle vs. steering magnitude.
+       Higher = harder braking in corners.
+   * - ``WALL_CLIP_DIST``
+     - ``4.0``
+     - both
+     - LiDAR readings beyond this distance are clipped (metres).
+   * - ``MASK_THRESH``
+     - ``0.4``
+     - pure_pursuit
+     - Emergency brake threshold: stop if a wall is closer than this
+       directly ahead (metres).
+   * - ``CAR_HALF_WIDTH``
+     - ``0.2``
+     - gap_follow
+     - Half the car width in metres. Sets the angular size of the
+       safety bubble blanked around the closest obstacle.
 
 launch files
 ------------

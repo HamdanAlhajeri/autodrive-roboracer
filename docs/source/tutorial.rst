@@ -109,90 +109,157 @@ standard ROS 2 messages.
 -------------------------------
 
 The algorithm lives in :file:`src/my_team_racer/my_team_racer/racer_node.py`.
+Switch between the two implementations by changing the ``ALGORITHM`` constant at the top of the file:
 
-4.1 Tunable constants
-~~~~~~~~~~~~~~~~~~~~~
+.. code-block:: python
 
-At the top of the file:
+   ALGORITHM = "gap_follow"    # recommended — handles hairpins
+   ALGORITHM = "pure_pursuit"  # original wall-following baseline
 
-.. list-table::
-   :header-rows: 1
-   :widths: 30 15 55
-
-   * - Constant
-     - Default
-     - Effect
-   * - ``LOOKAHEAD_DIST``
-     - ``0.8 m``
-     - Distance ahead on the centerline to steer toward. Longer = smoother but reacts later to curves.
-   * - ``MAX_THROTTLE``
-     - ``0.6``
-     - Top speed on straights (range 0–1).
-   * - ``MIN_THROTTLE``
-     - ``0.15``
-     - Floor speed so the car never stalls in tight corners.
-   * - ``STEER_GAIN``
-     - ``1.2``
-     - Proportional gain on the heading error. Raise to react faster; lower to reduce oscillation.
-   * - ``THROTTLE_DECAY``
-     - ``2.5``
-     - How sharply throttle drops with steering angle. Higher = more braking in corners.
-   * - ``WALL_CLIP_DIST``
-     - ``4.0 m``
-     - LiDAR readings beyond this are clipped (ignore far-away obstacles).
-
-4.2 Algorithm walkthrough
+4.1 Shared pre-processing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Step 1 — Pre-process the scan**
+Both algorithms start from the same LiDAR scan pre-processing step.
 
 ``LaserScan.ranges`` may contain ``inf`` or ``NaN`` where the beam hit nothing.
-These are replaced with ``WALL_CLIP_DIST`` and then clipped to ``[0, WALL_CLIP_DIST]``.
+These are replaced with ``WALL_CLIP_DIST`` and clipped:
 
 .. code-block:: python
 
    ranges = np.where(np.isfinite(ranges), ranges, WALL_CLIP_DIST)
    ranges = np.clip(ranges, 0.0, WALL_CLIP_DIST)
 
-**Step 2 — Convert to cartesian**
+Beam angles (radians) in the car frame (x forward, y left):
 
-Each beam angle is ``angle_min + i * angle_increment`` (radians).
-The car's x-axis points forward, y-axis points left.
+.. math::
 
-.. code-block:: python
+   \theta_i = \theta_{\min} + i \cdot \Delta\theta, \quad i = 0, 1, \ldots, N-1
 
-   xs = ranges * np.cos(angles)
-   ys = ranges * np.sin(angles)
+4.2 Algorithm A — Pure Pursuit
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Step 3 — Estimate centerline error**
+.. _pure-pursuit-math:
 
-Only forward-facing beams (``xs > 0``) are used.
-Left-wall distance = mean ``y`` of left beams; right-wall distance = mean ``-y`` of right beams.
+A reactive wall-following approach. The car estimates the track centreline by
+comparing average wall distances on each side, then steers toward a lookahead point
+on that estimated centreline.
 
-.. code-block:: python
+**Step 1 — Cartesian projection**
 
-   center_error = (left_dist - right_dist) / (left_dist + right_dist)
+Each beam is converted to a point in the car's local frame:
 
-A positive error means the car is closer to the right wall and should steer left.
+.. math::
 
-**Step 4 — Pure-pursuit geometry**
+   x_i = r_i \cos\theta_i, \qquad y_i = r_i \sin\theta_i
 
-A lookahead point is placed ``LOOKAHEAD_DIST`` ahead and offset laterally by
-``center_error * LOOKAHEAD_DIST``. The required heading change is:
+Only forward-facing beams (:math:`x_i > 0`) are used.
 
-.. code-block:: python
+**Step 2 — Centreline error**
 
-   heading_err = math.atan2(ly, lx)          # ly = lateral offset, lx = lookahead distance
-   steering = clip(STEER_GAIN * heading_err, -1, 1)
+The median lateral distance to each wall is computed:
 
-**Step 5 — Speed scheduling**
+.. math::
 
-Throttle decays exponentially with the absolute steering command:
+   d_L = \mathrm{median}(\, y_i \mid x_i > 0,\ y_i \geq 0 \,)
 
-.. code-block:: python
+.. math::
 
-   throttle = MAX_THROTTLE * exp(-THROTTLE_DECAY * abs(steering))
-   throttle = clip(throttle, MIN_THROTTLE, MAX_THROTTLE)
+   d_R = \mathrm{median}(\,-y_i \mid x_i > 0,\ y_i < 0 \,)
+
+The normalised centreline error (positive = too close to right wall):
+
+.. math::
+
+   e = \frac{d_L - d_R}{d_L + d_R}
+
+A proximity override applies when either wall is closer than 0.25 m:
+
+.. math::
+
+   e \leftarrow e - 0.4 \quad \text{if } d_L < 0.25\ \text{m} \qquad
+   e \leftarrow e + 0.4 \quad \text{if } d_R < 0.25\ \text{m}
+
+**Step 3 — Pure-pursuit geometry**
+
+A lookahead point is placed :math:`L` metres ahead and :math:`e \cdot L` metres
+laterally, then the required heading change is:
+
+.. math::
+
+   \delta = \arctan\!\left(\frac{e \cdot L}{L}\right) = \arctan(e)
+
+.. math::
+
+   u_{\text{steer}} = \mathrm{clip}\!\left(K_s \cdot \delta,\ -1,\ 1\right)
+
+where :math:`L` = ``LOOKAHEAD_DIST`` and :math:`K_s` = ``STEER_GAIN``.
+
+**Limitation:** fails on tight hairpins — as the outer wall approaches, the algorithm
+steers *away* from it rather than turning into the corner.
+
+4.3 Algorithm B — Follow the Gap
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. _gap-follow-math:
+
+Steers toward the largest free corridor in the LiDAR scan.
+Naturally handles hairpins because the track opening is always the biggest gap.
+
+**Step 1 — Safety bubble**
+
+Find the closest forward obstacle and blank a window of beams around it to
+prevent the car from fitting through gaps that are too narrow:
+
+.. math::
+
+   N_{\text{bubble}} = \left\lfloor \frac{\arcsin\!\left(\dfrac{w/2}{\max(d_{\min},\, w/2)}\right)}{\Delta\theta} \right\rfloor + 1
+
+where :math:`w` = ``CAR_HALF_WIDTH`` × 2 (full car width) and :math:`d_{\min}` is
+the range to the closest beam. Beams within :math:`N_{\text{bubble}}` indices of the
+closest beam are set to zero.
+
+**Step 2 — Largest gap**
+
+Scan through the blanked array and find the longest contiguous run of non-zero
+ranges. This run is the "gap".
+
+**Step 3 — Steer toward the gap**
+
+Target the deepest (furthest) point inside the gap:
+
+.. math::
+
+   i^* = \arg\max_{i \in \text{gap}}\ r_i
+
+.. math::
+
+   u_{\text{steer}} = \mathrm{clip}\!\left(K_s \cdot \theta_{i^*},\ -1,\ 1\right)
+
+where :math:`\theta_{i^*}` is the angle of the target beam relative to the car's
+forward axis, and :math:`K_s` = ``STEER_GAIN``.
+
+4.4 Shared throttle scheduling
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Both algorithms feed their steering output into the same speed scheduler.
+Throttle decays exponentially with steering magnitude so the car slows in corners:
+
+.. math::
+
+   T = \mathrm{clip}\!\left(T_{\max} \cdot e^{-\lambda \lvert u_{\text{steer}} \rvert},\; T_{\min},\; T_{\max}\right)
+
+where :math:`T_{\max}` = ``MAX_THROTTLE``, :math:`T_{\min}` = ``MIN_THROTTLE``,
+and :math:`\lambda` = ``THROTTLE_DECAY``.
+
+At zero steering :math:`T = T_{\max}` (full straight-line speed).
+At full lock :math:`(\lvert u \rvert = 1)`:
+
+.. math::
+
+   T_{\text{corner}} = T_{\max} \cdot e^{-\lambda}
+
+With the current defaults (:math:`T_{\max} = 0.15,\ \lambda = 4.5`):
+:math:`T_{\text{corner}} \approx 0.015`, floored to :math:`T_{\min} = 0.07`.
 
 5. Development workflow
 ------------------------

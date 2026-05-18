@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Pure Pursuit racer node for AutoDRIVE RoboRacer.
+Racer node for AutoDRIVE RoboRacer.
 
 Subscribes to LiDAR and publishes throttle + steering commands.
 Topics:
@@ -18,12 +18,14 @@ from std_msgs.msg import Float32
 
 
 # ── Tunable parameters ────────────────────────────────────────────────────────
-LOOKAHEAD_DIST   = 0.8    # metres ahead on the centerline to target
-MAX_THROTTLE     = 0.6    # top throttle on straights  [0, 1]
-MIN_THROTTLE     = 0.15   # minimum throttle in tight corners
-STEER_GAIN       = 1.2    # proportional gain on the heading error
-THROTTLE_DECAY   = 2.5    # how aggressively throttle drops with |steer|
-WALL_CLIP_DIST   = 4.0    # metres — clip LiDAR readings beyond this
+LOOKAHEAD_DIST   = 0.8    # metres — lookahead distance L
+WHEELBASE        = 0.32   # metres — RoboRacer wheelbase (approx)
+MAX_STEER_RAD    = 0.4    # radians — max physical steering angle for normalisation
+MAX_THROTTLE     = 0.4    # top speed on straights [0, 1]
+MIN_THROTTLE     = 0.1    # minimum speed in corners
+THROTTLE_DECAY   = 3.0    # corner braking aggressiveness
+WALL_CLIP_DIST   = 4.0    # clip LiDAR beyond this distance (metres)
+EMA_ALPHA        = 0.3    # smoothing factor for gy estimate (0=no update, 1=no filter)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -45,73 +47,64 @@ class RacerNode(Node):
             Float32, "/autodrive/roboracer_1/steering_command", 10
         )
 
-        self.get_logger().info("RacerNode started — pure pursuit via LiDAR")
+        self._gy_filtered = 0.0
+
+        self.get_logger().info("RacerNode started — geometric pure pursuit")
 
     # ── LiDAR callback ────────────────────────────────────────────────────────
 
     def _lidar_cb(self, msg: LaserScan) -> None:
         ranges = np.array(msg.ranges, dtype=np.float32)
-        angle_min = msg.angle_min        # rad, e.g. -135 deg for 270° scan
-        angle_inc = msg.angle_increment  # rad per step
+        angle_min = msg.angle_min
+        angle_inc = msg.angle_increment
 
-        # Replace inf / NaN with wall-clip distance
         ranges = np.where(np.isfinite(ranges), ranges, WALL_CLIP_DIST)
         ranges = np.clip(ranges, 0.0, WALL_CLIP_DIST)
 
-        steering = self._pure_pursuit_steer(ranges, angle_min, angle_inc)
+        angles = angle_min + np.arange(len(ranges)) * angle_inc
+
+        gx = LOOKAHEAD_DIST
+        gy = self._estimate_gy(ranges, angles)
+
+        steering = self._pure_pursuit_steer(gx, gy)
         throttle = self._speed_from_steer(steering)
 
-        self.pub_steering.publish(Float32(data=float(steering)))
-        self.pub_throttle.publish(Float32(data=float(throttle)))
+        self.pub_steering.publish(Float32(data=steering))
+        self.pub_throttle.publish(Float32(data=throttle))
 
-    # ── Pure pursuit steering ─────────────────────────────────────────────────
+    # ── Centerline lateral offset estimate ───────────────────────────────────
 
-    def _pure_pursuit_steer(
-        self, ranges: np.ndarray, angle_min: float, angle_inc: float
-    ) -> float:
-        """
-        1. Convert polar LiDAR scan to cartesian points.
-        2. Separate points roughly left and right of the car.
-        3. Average left / right distances in the forward half to find
-           a rough centerline offset.
-        4. Compute heading correction to a lookahead point on that centerline.
-        """
-        n = len(ranges)
-        angles = angle_min + np.arange(n) * angle_inc  # rad
-
-        # --- Cartesian scan (car frame: x forward, y left) ---
+    def _estimate_gy(self, ranges: np.ndarray, angles: np.ndarray) -> float:
         xs = ranges * np.cos(angles)
         ys = ranges * np.sin(angles)
 
-        # Keep only points in the forward hemisphere
-        fwd_mask = xs > 0.05
+        fwd = xs > 0.05
+        left_pts  = ys[fwd & (ys >= 0)]
+        right_pts = ys[fwd & (ys <  0)]
 
-        # Left / right split on y-axis
-        left_mask  = fwd_mask & (ys >= 0)
-        right_mask = fwd_mask & (ys <  0)
+        left_dist  = float(np.median(left_pts))   if len(left_pts)  > 0 else 1.0
+        right_dist = float(np.median(-right_pts)) if len(right_pts) > 0 else 1.0
 
-        # Mean lateral distance to left / right walls
-        left_dist  = float(np.mean(ys[left_mask]))   if left_mask.any()  else  1.0
-        right_dist = float(np.mean(-ys[right_mask]))  if right_mask.any() else  1.0
+        # signed lateral offset to the centerline in metres (positive = left)
+        gy_raw = (left_dist - right_dist) / 2.0
 
-        # Centerline error: positive → car is too close to right wall
-        total = left_dist + right_dist
-        center_error = (left_dist - right_dist) / total if total > 0 else 0.0
+        self._gy_filtered = (1.0 - EMA_ALPHA) * self._gy_filtered + EMA_ALPHA * gy_raw
+        return self._gy_filtered
 
-        # Lookahead point (LOOKAHEAD_DIST ahead, offset by center_error)
-        lx = LOOKAHEAD_DIST
-        ly = center_error * LOOKAHEAD_DIST
+    # ── Geometric pure pursuit steering ──────────────────────────────────────
 
-        # Pure-pursuit curvature → heading error
-        heading_err = math.atan2(ly, lx)
-        steering = float(np.clip(STEER_GAIN * heading_err, -1.0, 1.0))
-
-        return steering
+    def _pure_pursuit_steer(self, gx: float, gy: float) -> float:
+        L_sq = gx**2 + gy**2
+        if abs(gy) < 1e-6:
+            return 0.0
+        curvature = (2.0 * abs(gy)) / L_sq
+        delta = math.atan(curvature * WHEELBASE)
+        steering = math.copysign(delta, gy)
+        return float(np.clip(steering / MAX_STEER_RAD, -1.0, 1.0))
 
     # ── Throttle scheduling ───────────────────────────────────────────────────
 
     def _speed_from_steer(self, steering: float) -> float:
-        """Scale speed inversely with |steering| — slow down in corners."""
         throttle = MAX_THROTTLE * math.exp(-THROTTLE_DECAY * abs(steering))
         return float(np.clip(throttle, MIN_THROTTLE, MAX_THROTTLE))
 
