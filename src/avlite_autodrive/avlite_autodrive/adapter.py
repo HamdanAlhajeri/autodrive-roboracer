@@ -1,5 +1,6 @@
 """Independent actuator publisher. AVLite never owns AutoDRIVE actuator topics."""
 
+import argparse
 import math
 import signal
 import time
@@ -14,15 +15,20 @@ from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool, Float32
 
 from .actuation import Actuation, Limits
+from .configuration import load_config
 from .ros_utils import PREFIX, odom_state, valid_scan
 
 
 class ActuatorAdapter(Node):
-    def __init__(self):
+    def __init__(self, parameters=None):
         super().__init__("avlite_actuator_adapter")
-        defaults = Limits()
+        defaults = Limits(**(parameters or {}))
         params = {k: self.declare_parameter(k, v).value for k, v in vars(defaults).items()}
         self.control = Actuation(Limits(**params))
+        self.get_logger().info(
+            f"Driving limits: max_speed={self.control.limits.max_speed:.3f} m/s, "
+            f"max_throttle={self.control.limits.max_throttle:.3f}"
+        )
         self.throttle = self.create_publisher(Float32, PREFIX + "/throttle_command", 1)
         self.steering = self.create_publisher(Float32, PREFIX + "/steering_command", 1)
         self.create_subscription(
@@ -98,9 +104,15 @@ class ActuatorAdapter(Node):
 
 
 def main(args=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", help="Actuator YAML profile with optional shared_settings")
+    options, ros_args = parser.parse_known_args(args)
+    parameters = None
+    if options.config:
+        parameters = load_config(options.config)["avlite_actuator_adapter"]["ros__parameters"]
     # Keep DDS alive long enough to publish zero when Compose sends SIGTERM.
-    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
-    node = ActuatorAdapter()
+    rclpy.init(args=ros_args, signal_handler_options=SignalHandlerOptions.NO)
+    node = ActuatorAdapter(parameters)
     stopped = False
 
     def stop(*_):

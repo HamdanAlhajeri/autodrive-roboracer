@@ -8,7 +8,7 @@ WORKDIR /opt/integration
 
 FROM ros-base AS ros-runtime
 COPY src/avlite_autodrive /opt/integration
-ENTRYPOINT ["/bin/bash", "-c", "source /opt/ros/humble/setup.bash && exec python3 -m avlite_autodrive.adapter --ros-args --params-file /config/actuator.yaml"]
+ENTRYPOINT ["/bin/bash", "-c", "source /opt/ros/humble/setup.bash && exec python3 -m avlite_autodrive.adapter --config /config/actuator.yaml"]
 
 FROM ros-base AS avlite
 ARG AVLITE_REVISION=1653f592b2eb5289a14c0d1041e50fdea855322a
