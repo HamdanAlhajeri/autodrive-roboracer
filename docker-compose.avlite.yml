@@ -22,7 +22,7 @@ services:
       - bridge
 
   bridge:
-    image: autodrive-roboracer-actuator:local
+    image: autodrive-roboracer-bridge:local
     build:
       context: .
       dockerfile: docker/Dockerfile.avlite

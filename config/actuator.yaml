@@ -9,3 +9,6 @@ avlite_actuator_adapter:
     speed_kp: 0.01
     speed_ki: 0.002
     feedforward: 0.04
+    # A deceleration request at or beyond this magnitude cuts forward throttle.
+    # Actual zero-throttle deceleration must be measured in the simulator.
+    braking_acceleration_threshold: 0.1

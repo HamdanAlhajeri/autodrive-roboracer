@@ -1,6 +1,7 @@
 """Independent actuator publisher. AVLite never owns AutoDRIVE actuator topics."""
 
 import argparse
+import json
 import math
 import signal
 import time
@@ -12,7 +13,7 @@ from rclpy.signals import SignalHandlerOptions
 from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import Bool, Float32
+from std_msgs.msg import Bool, Float32, String
 
 from .actuation import Actuation, Limits
 from .configuration import load_config
@@ -31,6 +32,7 @@ class ActuatorAdapter(Node):
         )
         self.throttle = self.create_publisher(Float32, PREFIX + "/throttle_command", 1)
         self.steering = self.create_publisher(Float32, PREFIX + "/steering_command", 1)
+        self.diagnostics = self.create_publisher(String, "/avlite/actuator_diagnostics", 1)
         self.create_subscription(
             AckermannDriveStamped, "/avlite/control_command", self.on_command, 1
         )
@@ -98,6 +100,9 @@ class ActuatorAdapter(Node):
         else:
             result = self.control.tick(now, dt)
         self.publish(*result)
+        diagnostics = dict(self.control.diagnostics)
+        diagnostics["actuator_loop_dt_s"] = dt if math.isfinite(dt) else None
+        self.diagnostics.publish(String(data=json.dumps(diagnostics, allow_nan=False)))
         if self.control.reason != self.last_reason:
             self.get_logger().info(self.control.reason)
             self.last_reason = self.control.reason

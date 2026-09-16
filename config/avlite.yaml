@@ -8,9 +8,10 @@ c30_control:
   c32_ego_max_steering: 0.5235987756
   c32_ego_min_steering: -0.5235987756
   c35_lookahead_distance: 1.0
-  c35_lookahead_speed_gain: 0.0
+  # Upstream uses clamp(gain * speed, min, max) when gain is nonzero.
+  c35_lookahead_speed_gain: 0.4
   c35_min_lookahead: 0.6
-  c35_max_lookahead: 1.5
+  c35_max_lookahead: 1.8
   c35_cruise_velocity: ${speed_mps}
   c35_bubble_radius: 0.24
   c35_min_gap_width: 0.15
@@ -19,3 +20,14 @@ c30_control:
   c35_valpha: 1.0
   c35_vbeta: 0.0
   c35_vgamma: 0.0
+
+# Initial screening assumptions, not measured grip/braking guarantees.
+# Use telemetry to calibrate these before advancing toward 5 m/s.
+racing:
+  # preview-v2 experiment: retain corner preview while braking shortens steering.
+  # Omit this key to restore the previous coupled lookahead behavior.
+  gap_preview_min_m: 1.5
+  lateral_acceleration_mps2: 3.0
+  braking_deceleration_mps2: 1.5
+  reaction_time_s: 0.25
+  clearance_margin_m: 0.15

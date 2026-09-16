@@ -32,7 +32,7 @@ def main():
         ControlSettings.c32_ego_max_velocity,
     )
     world = AutoDRIVEWorldBridge()
-    controller = AutoDRIVEFollowTheGap()
+    controller = AutoDRIVEFollowTheGap(racing=config.get("racing"))
     stack = SyncExecuter(
         perception_model=PerceptionModel(ego_vehicle=EgoState(x=0, y=0)),
         controller=controller,
@@ -49,9 +49,11 @@ def main():
     signal.signal(signal.SIGINT, stop)
     generation, was_ready = world.reset_generation, False
     logging.info("AVLite SyncExecuter + AutoDRIVEFollowTheGap; waiting for live sensors")
+    previous_start = time.monotonic()
     try:
         while not stopped:
             start = time.monotonic()
+            loop_dt, previous_start = start - previous_start, start
             ready = world.ready
             if ready != was_ready or generation != world.reset_generation:
                 controller.reset()
@@ -69,6 +71,13 @@ def main():
                     call_localize=False,
                     pace_control=False,
                 )
+                work_time = time.monotonic() - start
+                world.publish_diagnostics({
+                    **controller.diagnostics,
+                    "controller_loop_dt_s": loop_dt,
+                    "controller_step_time_s": work_time,
+                    "controller_overrun": work_time > 0.05 or loop_dt > 0.075,
+                })
             time.sleep(max(0, 0.05 - (time.monotonic() - start)))
     finally:
         stack.stop()

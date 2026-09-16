@@ -1,6 +1,7 @@
 """ROS transport for the simulator; no bicycle-model simulation is run here."""
 
 import copy
+import json
 import math
 import threading
 import time
@@ -13,7 +14,7 @@ from rclpy.qos import qos_profile_sensor_data
 from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 
 from avlite.c40_execution.c41_world_bridge import WorldBridge
 from avlite.c10_perception.c11_perception_model import EgoState, PerceptionModel
@@ -47,6 +48,9 @@ class AutoDRIVEWorldBridge(WorldBridge):
         self.node = Node("avlite_autodrive_bridge")
         self.publisher = self.node.create_publisher(
             AckermannDriveStamped, "/avlite/control_command", 1
+        )
+        self.diagnostics_publisher = self.node.create_publisher(
+            String, "/avlite/controller_diagnostics", 1
         )
         self.node.create_subscription(
             LaserScan, PREFIX + "/lidar", self.on_scan, qos_profile_sensor_data
@@ -122,6 +126,19 @@ class AutoDRIVEWorldBridge(WorldBridge):
         msg.drive.steering_angle = float(cmd.steer)
         msg.drive.acceleration = float(cmd.acceleration)
         self.publisher.publish(msg)
+
+    def publish_diagnostics(self, values):
+        with self.lock:
+            now = time.monotonic()
+            values = {
+                **values,
+                "controller_lidar_age_s": now - self.scan_time,
+                "controller_odom_age_s": now - self.odom_time,
+            }
+        # Missing inputs remain null rather than JSON Infinity or a fresh zero.
+        values = {key: value if value is None or math.isfinite(value) else None
+                  for key, value in values.items()}
+        self.diagnostics_publisher.publish(String(data=json.dumps(values, allow_nan=False)))
 
     def close(self):
         self.executor.shutdown(timeout_sec=2)

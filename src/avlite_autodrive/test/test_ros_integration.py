@@ -1,5 +1,6 @@
 """Real ROS processes; run in the AVLite image with RUN_ROS_TESTS=1."""
 
+import json
 import os
 import signal
 import shutil
@@ -18,7 +19,7 @@ def test_stack_moves_and_watchdog_stops_after_avlite_is_killed(tmp_path):
     import rclpy
     from nav_msgs.msg import Odometry
     from sensor_msgs.msg import LaserScan
-    from std_msgs.msg import Float32
+    from std_msgs.msg import Float32, String
     from avlite_autodrive.ros_utils import PREFIX
 
     rclpy.init()
@@ -26,6 +27,15 @@ def test_stack_moves_and_watchdog_stops_after_avlite_is_killed(tmp_path):
     scan_pub = node.create_publisher(LaserScan, PREFIX + "/lidar", 1)
     odom_pub = node.create_publisher(Odometry, PREFIX + "/odom", 1)
     outputs = []
+    controller_diagnostics, actuator_diagnostics = [], []
+    node.create_subscription(
+        String, "/avlite/controller_diagnostics",
+        lambda message: controller_diagnostics.append(json.loads(message.data)), 10,
+    )
+    node.create_subscription(
+        String, "/avlite/actuator_diagnostics",
+        lambda message: actuator_diagnostics.append(json.loads(message.data)), 10,
+    )
     node.create_subscription(
         Float32,
         PREFIX + "/throttle_command",
@@ -72,6 +82,21 @@ def test_stack_moves_and_watchdog_stops_after_avlite_is_killed(tmp_path):
         assert runner.poll() is None, "AVLite process exited"
         assert any(v > 0 for _, v in outputs), "Actual AVLite commands did not reach actuators"
         assert max(v for _, v in outputs) == pytest.approx(0.031, abs=1e-6)
+        assert controller_diagnostics and actuator_diagnostics
+        diagnostic = controller_diagnostics[-1]
+        assert 0 < diagnostic["target_velocity_mps"] <= 0.7
+        assert diagnostic["lookahead_m"] > 0
+        assert diagnostic["gap_preview_requested_m"] == pytest.approx(1.5)
+        assert diagnostic["gap_preview_selected_m"] == pytest.approx(1.5)
+        assert diagnostic["lookahead_m"] == pytest.approx(0.6)
+        assert diagnostic["gap_preview_fallback"] is False
+        assert abs(diagnostic["target_bearing_raw_rad"]) < 0.02
+        assert abs(diagnostic["target_bearing_rad"]) < 0.02
+        assert diagnostic["clearance_m"] > 0
+        assert 0 <= diagnostic["controller_lidar_age_s"] < 0.5
+        assert diagnostic["controller_step_time_s"] >= 0
+        assert actuator_diagnostics[-1]["actuator_target_speed_mps"] <= 0.7
+        assert "throttle_saturated" in actuator_diagnostics[-1]
         runner.kill()
         runner.wait(timeout=5)
         killed = time.monotonic()

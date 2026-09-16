@@ -1,0 +1,54 @@
+SDP - LOCALIZATION RESOURCES
+============================
+
+LECTURES & VIDEOS
+-----------------
+F1TENTH Coursekit - Module C: Mapping & Localization
+https://f1tenth-coursekit.readthedocs.io/en/stable/lectures/ModuleC/index.html
+
+F1TENTH Lecture 8 - Localization: Particle Filter (Hector SLAM, MCL, AMCL, tuning)
+https://f1tenth-coursekit.readthedocs.io/en/latest/lectures/ModuleC/lecture08.html
+
+F1TENTH Lecture 11 - Particle Filters (algorithm, tuning, hands-on tutorial)
+https://f1tenth-coursekit.readthedocs.io/en/stable/lectures/ModuleC/lecture11.html
+
+YouTube - F1TENTH L09: Particle Filters
+https://www.youtube.com/watch?v=SRBdpoPl57Q
+
+YouTube - F1/10 Lecture 10: Localization Using Particle Filters (Prof. Madhur Behl, UVA)
+https://www.youtube.com/watch?v=l_nWiL3mkzQ
+Course site (slides, code, labs): https://linklab-uva.github.io/autonomousracing/
+
+
+PAPERS
+------
+Robustness Evaluation of Localization Techniques for Autonomous Racing (SynPF, ETH, 2024)
+https://arxiv.org/abs/2401.07658
+Code: https://github.com/ForzaETH/particle_filter
+
+CDDT: Fast Approximate 2D Ray Casting for Accelerated Localization (MIT, ICRA 2018)
+https://arxiv.org/abs/1705.01167
+
+ForzaETH Race Stack - Scaled Autonomous Head-to-Head Racing on COTS Hardware (JFR 2024)
+https://arxiv.org/abs/2403.11784
+
+Unifying F1TENTH Autonomous Racing: Survey, Methods and Benchmarks (2024)
+https://arxiv.org/pdf/2402.18558
+
+
+CODE / REPOS
+------------
+mit-racecar/particle_filter - reference MCL implementation (RangeLibc ray casting)
+https://github.com/mit-racecar/particle_filter
+
+range_libc - C++/CUDA ray casting with Python wrappers
+https://github.com/kctess5/range_libc
+
+ForzaETH/race_stack - full race stack incl. localization + VESC interface
+https://github.com/ForzaETH/race_stack
+
+slam_toolbox - map building + localization mode (needs good odometry)
+https://github.com/SteveMacenski/slam_toolbox
+
+f1tenth_lab6_template - pure pursuit lab using particle filter localization
+https://github.com/f1tenth/f1tenth_lab6_template
