@@ -1,16 +1,57 @@
-# ROS 2 / colcon
+# ROS 2 / colcon build output (including nested workspaces)
 build/
 install/
-log/
-*.egg-info/
-__pycache__/
-*.pyc
-.pytest_cache/
+.colcon/
+.ros/
 
-# IDE
+# Local runs: simulator downloads, extracted Windows app, recordings and logs
+log/
+*.log
+*.pid
+
+# Python bytecode, packaging output and virtual environments
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+.venv/
+venv/
+
+# Test, lint and coverage output
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Generated documentation (docs/build/ is covered by build/ above)
+docs/_build/
+docs/source/_build/
+
+# Local environment settings; keep shareable templates
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# Editor settings and temporary files
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+*.tmp
 
 # OS
 .DS_Store
 Thumbs.db
+Desktop.ini
+
+# Keep source, YAML configs, scripts and curated docs/validation/ results in Git.
+# Raw recordings and generated plots belong under log/recordings/.

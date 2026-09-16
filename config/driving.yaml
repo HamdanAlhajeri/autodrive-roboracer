@@ -1,5 +1,6 @@
 # Edit the numbers, keeping the setting names unchanged, then restart avlite and actuator.
 # Speed sets AVLite cruise/max velocity and the actuator's speed-demand limit.
-speed_mps: 5.0
+# First fast-driving screening stage; advance only after three clean laps.
+speed_mps: 2.5
 # Normalized throttle ceiling [0, 1]; independent of the requested speed.
 max_throttle: 0.2

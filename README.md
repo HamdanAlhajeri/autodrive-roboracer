@@ -27,10 +27,11 @@ docker compose -f docker-compose.avlite.yml -f docker-compose.windows.yml logs -
 
 ## Shared speed and throttle settings
 
-Edit only [config/driving.yaml](config/driving.yaml). Example values:
+Edit [config/driving.yaml](config/driving.yaml) for the shared limits. The current
+corner-preview candidate uses:
 
 ```yaml
-speed_mps: 5.0
+speed_mps: 2.5
 max_throttle: 0.2
 ```
 
@@ -38,7 +39,8 @@ max_throttle: 0.2
 limit together. `max_throttle` is a separate normalized throttle cap, not a speed.
 The two profiles reference this file through `shared_settings: driving.yaml`
 and `${...}` values, which the launchers resolve on startup.
-The recorded clean-lap validation used 0.5 m/s and a 0.02 throttle cap.
+The initial clean-lap validation used 0.5 m/s and a 0.02 throttle cap; the
+[corner-preview comparison](#tests-and-improvements) below uses 2.5 m/s and 0.2.
 
 After saving, reload both services (the simulator stays open):
 
@@ -51,22 +53,138 @@ rebuild. When upgrading an existing installation to shared settings for the firs
 time, run `./run-windows.ps1` on Windows, or rebuild/recreate the services with
 `docker compose -f docker-compose.avlite.yml up -d --build actuator avlite` on Linux.
 
-## Record a run and view debugging graphs (Windows)
+## Test the corner-entry update (Windows)
 
-Start the simulator and connect it, then run this in a second PowerShell window:
+The `preview-v2` candidate searches at least 1.5 m ahead for a turn while keeping
+the shorter speed-dependent steering distance and tight-bend fallback. It keeps
+the existing curvature/clearance speed caps and deceleration response.
+The new profile completed its first three-clean-lap screen at 2.5 m/s, reducing
+mean rolling lap time from 21.530 s to 15.333 s in the
+[comparison below](#tests-and-improvements). Higher-speed screening and final
+repeatability checks remain pending. See the
+[settings and diagnostic guide](docs/avlite-setup.md#corner-entry-screening-candidate).
+
+With the simulator open and connected, run:
 
 ```powershell
-.\record-windows.ps1 -Seconds 120 -Label corner-test
+.\record-one-lap.ps1 -Laps 3 -Label preview-v2-2p5
 ```
 
-Finish starting or restarting the simulator and controllers before recording.
-The timer starts only after valid odometry arrives (up to 30 seconds of waiting;
-adjust with `-WaitForOdomSeconds`). Recording stops with an explanation if odometry
-then disappears for 10 seconds. If the bridge is replaced during a run, rerun the
-recording command to attach to its new connection.
+Reset when prompted. The script reloads the actuator, records up to three consecutive
+laps, and stops AVLite if it detects a collision/reset or reaches the time limit.
+It opens the path/speed graph; inspect `telemetry.control.png` in the same folder
+for target speed, actual slowdown, throttle, clearance and timing, plus the new
+preview-distance and target-bearing panels. Keep the entire folder when comparing
+results. Three clean laps with the new profile are the first screening gate;
+the [checklist](docs/checklist-2026-09-21.md) tracks later speed steps and final
+three-run, ten-lap acceptance separately.
 
-Reproduce the issue while the command runs. When it finishes, open `telemetry.png`
-in the new dated folder under `log/recordings/`. It graphs measured speed, throttle
+New Windows recordings also draw the observed track boundaries and obstacles
+behind the car's path. The recorder combines LiDAR hits with simulator world
+poses and saves `telemetry.track.json`; a short run may show only part of the
+track. Use `-NoTrackMap` to disable this optional capture. Older recordings have
+no track geometry unless you supply an outline from another run on the same
+track and world coordinates. See [track overlays](docs/avlite-setup.md#track-outline-on-the-path-graphs).
+
+## Tests and improvements
+
+### Earlier corner steering — 16 September 2026
+
+Separating corner preview from steering distance reduced mean rolling lap time
+by **6.20 s (28.8%)** in this comparison. Both recordings completed **three clean
+laps with zero collisions or resets**, using the same **2.5 m/s speed demand
+ceiling and 0.2 throttle cap**.
+
+**Before: late turn selection (`corner-v1`).** The car followed a wider line at
+both ends of the track and repeatedly slowed sharply. At the first bottom bend,
+the steering command stayed at zero with 0.707 m of observed corridor clearance,
+then reached the 30-degree limit at 0.604 m. Braking shortened the distance used
+to search for an opening to 0.6 m, so straight ahead remained acceptable until
+the car was close to the wall.
+
+![Before: three clean laps with late corner steering and repeated sharp speed drops](docs/validation/corner-preview/before.png)
+
+**What changed:**
+
+- Added `racing.gap_preview_min_m: 1.5` in
+  [config/avlite.yaml](config/avlite.yaml). The controller requests at least
+  1.5 m of gap preview, capped at 1.8 m, even when braking reduces its steering
+  distance.
+- Kept the steering distance at `0.4 * measured_speed`, bounded to 0.6–1.8 m.
+  The gap finder can still fall back to shorter visible openings in tight bends;
+  steering and curvature speed limits use the actual shorter pursuit distance.
+- Retained the speed/throttle limits, clearance braking and watchdogs. Added
+  preview-distance and target-bearing diagnostics to distinguish turn selection
+  from steering response. The algorithm is in
+  [controller.py](src/avlite_autodrive/avlite_autodrive/plugin/controller.py).
+
+**After: independent corner preview (`preview-v2`).** The recorded path rounds
+both end bends earlier, and the speed trace avoids the repeated deep corner
+slowdowns seen before. The measured peak speed is unchanged; the lap-time gain
+comes with a different path and better speed retention through the bends.
+
+![After: three clean laps with independent corner preview, a smoother path and better corner speed retention](docs/validation/corner-preview/after.png)
+
+| Measurement | Before | After |
+| --- | --- | --- |
+| Completed clean laps | 3 | 3 |
+| Collisions / resets | 0 / 0 | 0 / 0 |
+| Rolling lap times | 20.604 / 22.457 s | 15.069 / 15.597 s |
+| Mean rolling lap time | 21.530 s | 15.333 s |
+| Measured peak speed | 2.486 m/s | 2.486 m/s |
+
+Rolling times measure intervals between consecutive observed finish crossings;
+they exclude the initial standing-start lap. The plots include startup and the
+one-second finish-feedback tail. Gray points are observed LiDAR surfaces placed
+using simulator poses, providing an approximate track outline.
+
+Saved evidence: [before summary](docs/validation/corner-preview/before.summary.json)
+from `20260916-231003-523-corner-v1-2p5` and
+[after summary](docs/validation/corner-preview/after.summary.json)
+from `20260916-233141-867-corner-v1-2p5`. The latter reused the old run label;
+its saved configuration and recorded preview diagnostics confirm `preview-v2`
+was active. These are one three-lap recording per profile. The
+[checklist](docs/checklist-2026-09-21.md) tracks further speed screening and the
+final requirement of three fresh runs with ten clean laps each.
+
+## Record laps and open the graph (Windows)
+
+Start the simulator with `.\run-windows.ps1` and connect it, then run:
+
+```powershell
+.\record-one-lap.ps1
+```
+
+The script stops AVLite, reloads the actuator settings and asks you to reset the
+car to the starting position.
+Keep **Connection** and **Autonomous** selected, then press Enter in PowerShell.
+Once fresh position and lap/collision counters arrive, the script starts AVLite
+automatically. It stops AVLite when recording finishes and opens
+`log\recordings\<dated-run>\telemetry.lap.png`, showing the path on the left and
+measured speed on the right. The simulator, bridge and actuator stay running.
+
+Recording ends after `-Laps` lap-counter increases (default 1) plus one second for
+collision feedback, at the first detected collision/reset, or after 600 seconds.
+The full feedback second must finish for a screening pass. Use `-MaxSeconds`,
+`-Label`, or `-WaitForOdomSeconds` (default 30) to adjust the capture, and `-NoOpen`
+to save the graph without opening it. For example:
+
+```powershell
+.\record-one-lap.ps1 -MaxSeconds 300 -Label controller-test -NoOpen
+```
+
+Reset before pressing Enter; starting mid-lap captures only the remainder, and
+resetting during recording invalidates a clean-lap result. If the requested lap
+count is not reached or the run is not confirmed clean, the script reports that
+result. AVLite is also stopped if recording fails or you press Ctrl+C.
+
+The graph's speed ceiling comes from the saved configuration snapshot;
+it is not the controller's changing speed demand or a guaranteed physical limit.
+The report describes the recorded interval and available lap evidence, including
+partial runs. `telemetry.control.png` compares controller target, actuator demand
+and measured speed, with clearance, lookahead, requested/measured acceleration,
+throttle, saturation, collision/reset markers and controller timing.
+`telemetry.png` also graphs measured speed, throttle
 command/feedback, steering in radians, requested acceleration, the vehicle path,
 and lap/collision/reset counters. Capture at about 10 Hz is intended for debugging
 these signals; this is not a full camera/LiDAR replay recording.
@@ -74,14 +192,35 @@ these signals; this is not a full camera/LiDAR replay recording.
 Each folder also contains `telemetry.csv` for Excel, the original `telemetry.jsonl`,
 a summary, copies of the configuration files, and controller logs. Samples have
 both elapsed seconds and UTC timestamps. Stale readings appear as gaps in the
-time-series plots. Config copies reflect the files on disk: restart the controllers
-after config edits before recording so the snapshots match the running settings.
+time-series plots. `telemetry.summary.json` reports `clean_run`, lap counts and
+`lap_times_s` between consecutive observed finish crossings. The first crossing
+is excluded from these rolling lap times; `first_lap_driving_s` separately measures
+first detected motion to first crossing when recording began stationary.
+Neither metric includes the feedback tail. Config copies reflect the files on
+disk; this wrapper reloads both controllers before driving. Reload controllers
+yourself before using the passive recorder after edits.
 
-Recording only observes the run. Finishing a recording does not stop the car.
+For a passive recording while you reproduce an issue, use:
+
+```powershell
+.\record-windows.ps1 -Seconds 120 -Label corner-test
+```
+
+This separate script only observes the run and leaves the car driving afterward.
+Its `-Laps 3` option stops recording after three lap-counter increases;
+`-StopAfterLap` remains the one-lap shorthand. Add `-StopOnIncident` to stop
+recording after a collision/reset. These options do not start or stop AVLite.
+Open the printed graph path when it finishes.
+
+Finish starting or restarting the simulator, bridge and actuator before either
+workflow. The recording timer starts after valid odometry arrives. Recording
+fails if valid odometry then disappears for 10 seconds. If the bridge is replaced
+during a run, rerun the recording command to attach to its new connection.
 Keep the whole run folder when reporting a bug. These folders are ignored by Git.
 
 The agreed racing and mapping milestones are saved in the
-[September 21 plan](docs/plan-2026-09-21.md).
+[September 21 plan](docs/plan-2026-09-21.md). Track progress and experiment results
+in the [execution checklist](docs/checklist-2026-09-21.md).
 
 ## AVLite quick start
 
