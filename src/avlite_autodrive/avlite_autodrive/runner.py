@@ -4,21 +4,20 @@ import argparse
 import logging
 import signal
 import time
-from pathlib import Path
 
-import yaml
 from avlite.c10_perception.c11_perception_model import EgoState, PerceptionModel
 from avlite.c30_control.c39_settings import ControlSettings
 from avlite.c40_execution.c49_settings import ExecutionSettings
 from avlite.c40_execution.c44_sync_executer import SyncExecuter
 from .plugin import AutoDRIVEFollowTheGap, AutoDRIVEWorldBridge
+from .configuration import load_config
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="/config/avlite.yaml")
     args = parser.parse_args()
-    config = yaml.safe_load(Path(args.config).read_text())
+    config = load_config(args.config)
     # Apply the explicit small-car profile BEFORE constructing the controller.
     for key, value in config["c30_control"].items():
         if not hasattr(ControlSettings, key):
@@ -27,6 +26,11 @@ def main():
     ExecutionSettings.c41_world_stack_capabilities = ["LOCALIZATION"]
     ExecutionSettings.c41_world_capabilities = ["LIDAR_2D"]
     logging.basicConfig(level=logging.INFO)
+    logging.info(
+        "Driving settings: cruise=%.3f m/s, max_velocity=%.3f m/s",
+        ControlSettings.c35_cruise_velocity,
+        ControlSettings.c32_ego_max_velocity,
+    )
     world = AutoDRIVEWorldBridge()
     controller = AutoDRIVEFollowTheGap()
     stack = SyncExecuter(

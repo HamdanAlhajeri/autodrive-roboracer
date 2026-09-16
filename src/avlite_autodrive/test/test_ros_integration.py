@@ -2,6 +2,7 @@
 
 import os
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -13,7 +14,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_stack_moves_and_watchdog_stops_after_avlite_is_killed():
+def test_stack_moves_and_watchdog_stops_after_avlite_is_killed(tmp_path):
     import rclpy
     from nav_msgs.msg import Odometry
     from sensor_msgs.msg import LaserScan
@@ -50,17 +51,27 @@ def test_stack_moves_and_watchdog_stops_after_avlite_is_killed():
             rclpy.spin_once(node, timeout_sec=0.02)
             time.sleep(0.02)
 
-    adapter = subprocess.Popen(["/usr/bin/python3", "-m", "avlite_autodrive.adapter"])
+    # Use the real profiles but override both through one isolated shared file.
+    # A non-default throttle cap proves the adapter consumed the shared settings.
+    for profile in ("avlite.yaml", "actuator.yaml"):
+        shutil.copyfile("/config/" + profile, tmp_path / profile)
+    (tmp_path / "driving.yaml").write_text("speed_mps: 0.7\nmax_throttle: 0.031\n")
+    adapter = subprocess.Popen(
+        ["/usr/bin/python3", "-m", "avlite_autodrive.adapter",
+         "--config", str(tmp_path / "actuator.yaml")]
+    )
     runner = None
     try:
         pump(2)
         assert outputs and all(v == 0 for _, v in outputs), "Startup must stay stopped"
         runner = subprocess.Popen(
-            [sys.executable, "-m", "avlite_autodrive.runner", "--config", "/config/avlite.yaml"]
+            [sys.executable, "-m", "avlite_autodrive.runner",
+             "--config", str(tmp_path / "avlite.yaml")]
         )
         pump(6)
         assert runner.poll() is None, "AVLite process exited"
         assert any(v > 0 for _, v in outputs), "Actual AVLite commands did not reach actuators"
+        assert max(v for _, v in outputs) == pytest.approx(0.031, abs=1e-6)
         runner.kill()
         runner.wait(timeout=5)
         killed = time.monotonic()

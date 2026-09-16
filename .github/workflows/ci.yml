@@ -32,7 +32,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-      - run: pip install pytest==8.3.5 numpy==1.26.4
+      - run: pip install pytest==8.3.5 numpy==1.26.4 PyYAML==6.0.2
       - name: Legacy controller regression tests
         run: PYTHONPATH=src/my_team_racer python -m pytest -q src/my_team_racer/test/test_racer_node.py
       - name: Actuation and sensor unit tests
@@ -40,6 +40,7 @@ jobs:
           PYTHONPATH=src/avlite_autodrive python -m pytest -q \
             src/avlite_autodrive/test/test_actuation.py \
             src/avlite_autodrive/test/test_sensors.py \
+            src/avlite_autodrive/test/test_configuration.py \
             src/avlite_autodrive/test/test_simulator_bridge.py
 
   avlite-ros:
