@@ -42,8 +42,11 @@ track work is included.
 - [x] Document setup, architecture, unit conversions, stopping, fallback, exact
   validation commands, results, and limitations.
 - [x] Extend CI with tests that do not require a GPU.
-- [ ] Push `feat/avlite-autodrive` and open a PR against `main`. Keep it draft
+- [x] Push `feat/avlite-autodrive` and open a PR against `main`. Keep it draft
   if the clean-lap milestone is incomplete; do not merge automatically.
 
 Detailed observed results are recorded in `docs/avlite-validation.md`. A passing
 unit test or successful process launch alone does not establish a clean lap.
+
+Delivered in [pull request #1](https://github.com/HamdanAlhajeri/autodrive-roboracer/pull/1).
+The clean-lap milestone passed, so the PR is ready for review. It has not been merged.
