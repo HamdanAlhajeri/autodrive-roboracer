@@ -1,0 +1,18 @@
+# Windows override: run the native practice simulator and keep ROS in Docker.
+# docker compose -f docker-compose.avlite.yml -f docker-compose.windows.yml up -d bridge actuator avlite
+services:
+  simulator:
+    profiles: [linux-simulator]
+
+  bridge:
+    network_mode: !reset null
+    ports:
+      - "127.0.0.1:4567:4567"
+
+  actuator:
+    network_mode: service:bridge
+    depends_on:
+      - bridge
+
+  avlite:
+    network_mode: service:bridge
