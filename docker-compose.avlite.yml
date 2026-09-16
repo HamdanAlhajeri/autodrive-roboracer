@@ -1,0 +1,67 @@
+# Standalone Compose file: the legacy racer/devkit services are deliberately absent.
+# docker compose -f docker-compose.avlite.yml up --build
+services:
+  simulator:
+    image: autodriveecosystem/autodrive_roboracer_sim:2026-icra-practice
+    network_mode: host
+    ipc: host
+    environment:
+      DISPLAY: ${DISPLAY:-:0}
+      NVIDIA_DRIVER_CAPABILITIES: all
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    entrypoint: ["/bin/bash", "-c", "exec ./AutoDRIVE\\ Simulator.x86_64 -batchmode -ip 127.0.0.1 -port 4567"]
+    depends_on:
+      - bridge
+
+  bridge:
+    image: autodrive-roboracer-actuator:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.avlite
+      target: ros-runtime
+    network_mode: host
+    ipc: host
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    volumes:
+      - ./src/avlite_autodrive:/opt/integration:ro
+    entrypoint: ["/bin/bash", "-c", "source /opt/ros/humble/setup.bash && source /home/autodrive_devkit/install/setup.bash && exec python3 -m avlite_autodrive.simulator_bridge"]
+
+  actuator:
+    image: autodrive-roboracer-actuator:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.avlite
+      target: ros-runtime
+    network_mode: host
+    ipc: host
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    volumes:
+      - ./config:/config:ro
+      - ./src/avlite_autodrive:/opt/integration:ro
+
+  avlite:
+    image: autodrive-roboracer-avlite:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.avlite
+      target: avlite
+    network_mode: host
+    ipc: host
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    volumes:
+      - ./config:/config:ro
+      - ./src/avlite_autodrive:/opt/integration:ro
+    depends_on:
+      - actuator
+      - bridge

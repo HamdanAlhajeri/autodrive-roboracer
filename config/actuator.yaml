@@ -1,0 +1,9 @@
+avlite_actuator_adapter:
+  ros__parameters:
+    max_speed: 0.5
+    max_throttle: 0.02
+    max_steer: 0.5235987756
+    timeout: 0.5
+    speed_kp: 0.01
+    speed_ki: 0.002
+    feedforward: 0.04

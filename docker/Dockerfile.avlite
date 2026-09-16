@@ -1,0 +1,25 @@
+FROM autodriveecosystem/autodrive_roboracer_api:2026-icra-practice AS ros-base
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-humble-ackermann-msgs python3-venv python3-tk python3-pytest \
+    && rm -rf /var/lib/apt/lists/*
+ENV PYTHONPATH=/opt/integration
+WORKDIR /opt/integration
+
+FROM ros-base AS ros-runtime
+COPY src/avlite_autodrive /opt/integration
+ENTRYPOINT ["/bin/bash", "-c", "source /opt/ros/humble/setup.bash && exec python3 -m avlite_autodrive.adapter --ros-args --params-file /config/actuator.yaml"]
+
+FROM ros-base AS avlite
+ARG AVLITE_REVISION=1653f592b2eb5289a14c0d1041e50fdea855322a
+COPY docker/avlite-constraints.txt /opt/avlite-constraints.txt
+RUN python3 -m venv --system-site-packages /opt/avlite-venv \
+    && /opt/avlite-venv/bin/pip install --no-cache-dir --upgrade \
+       pip==25.3 setuptools==79.0.1 wheel==0.45.1 packaging==25.0 \
+    && /opt/avlite-venv/bin/pip install --no-cache-dir --no-build-isolation \
+       --constraint /opt/avlite-constraints.txt \
+       "avlite @ git+https://github.com/AV-Lab/avlite.git@${AVLITE_REVISION}" \
+    && /opt/avlite-venv/bin/pip freeze > /opt/avlite-dependencies.txt
+ENV PATH=/opt/avlite-venv/bin:$PATH
+COPY src/avlite_autodrive /opt/integration
+ENTRYPOINT ["/bin/bash", "-c", "source /opt/ros/humble/setup.bash && exec /opt/avlite-venv/bin/python -m avlite_autodrive.runner --config /config/avlite.yaml"]

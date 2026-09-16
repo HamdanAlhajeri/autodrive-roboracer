@@ -18,10 +18,47 @@ jobs:
           python-version: "3.10"
 
       - name: Install linters
-        run: pip install flake8
+        run: pip install flake8==7.1.2
 
-      - name: Lint racer_node.py
-        run: flake8 src/my_team_racer/my_team_racer/racer_node.py --max-line-length=100
+      - name: Lint controllers and bridge
+        run: >-
+          flake8 src/my_team_racer/my_team_racer/racer_node.py src/avlite_autodrive
+          --select E,F,W --ignore E203,W503 --max-line-length=100
+
+  unit-tests:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install pytest==8.3.5 numpy==1.26.4
+      - name: Legacy controller regression tests
+        run: PYTHONPATH=src/my_team_racer python -m pytest -q src/my_team_racer/test/test_racer_node.py
+      - name: Actuation and sensor unit tests
+        run: |
+          PYTHONPATH=src/avlite_autodrive python -m pytest -q \
+            src/avlite_autodrive/test/test_actuation.py \
+            src/avlite_autodrive/test/test_sensors.py \
+            src/avlite_autodrive/test/test_simulator_bridge.py
+
+  avlite-ros:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build pinned AVLite and ROS runtimes (no GPU needed)
+        run: docker compose -f docker-compose.avlite.yml build actuator avlite
+      - name: Real AVLite, ROS transport and process-death watchdog tests
+        run: |
+          docker compose -f docker-compose.avlite.yml run --rm --no-deps \
+            -e ROS_DOMAIN_ID=73 -e RUN_ROS_TESTS=1 --entrypoint /bin/bash avlite \
+            -c 'source /opt/ros/humble/setup.bash && python -m pytest -q -p no:cacheprovider test'
+      - name: Build ROS integration package
+        run: |
+          docker compose -f docker-compose.avlite.yml run --rm --no-deps \
+            --entrypoint /bin/bash actuator \
+            -c 'source /opt/ros/humble/setup.bash && cd /tmp && colcon build --base-paths /opt/integration --packages-select avlite_autodrive'
 
   build:
     runs-on: ubuntu-22.04

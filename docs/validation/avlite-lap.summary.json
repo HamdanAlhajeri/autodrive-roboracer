@@ -1,0 +1,31 @@
+{
+  "elapsed_s": 71.10701767399996,
+  "initial": {
+    "lap_count": 0,
+    "collision_count": 0,
+    "last_lap_time": null,
+    "throttle_command": 0.0,
+    "steering_command": 0.0,
+    "throttle": 0.0,
+    "steering": 0.0
+  },
+  "final": {
+    "lap_count": 1,
+    "collision_count": 0,
+    "last_lap_time": 91.7791976928711,
+    "throttle_command": 0.019657650962471962,
+    "steering_command": -0.1292782723903656,
+    "throttle": 0.01899999938905239,
+    "steering": -0.06809999793767929,
+    "x": 0.903,
+    "y": 3.5968,
+    "heading": -1.5655686456861,
+    "speed": 0.4799,
+    "avlite_steer_rad": -0.06036645546555519,
+    "avlite_acceleration": -0.0053497799672186375
+  },
+  "distance_m": 31.041501660272935,
+  "resets": 0,
+  "max_speed_mps": 0.5017,
+  "clean_lap": true
+}

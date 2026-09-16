@@ -162,9 +162,10 @@ class TestPurePursuitMath(unittest.TestCase):
         self.node = RacerNode()
 
     def _steer(self, ranges, angle_min=-2.356, angle_inc=0.00872):
-        return self.node._pure_pursuit_steer(
-            np.array(ranges, dtype=np.float32), angle_min, angle_inc
-        )
+        from my_team_racer.racer_node import LOOKAHEAD_DIST
+        angles = angle_min + np.arange(len(ranges)) * angle_inc
+        gy = self.node._estimate_gy(np.array(ranges, dtype=np.float32), angles)
+        return self.node._pure_pursuit_steer(LOOKAHEAD_DIST, gy)
 
     def test_symmetric_gives_zero(self):
         s = self._steer([1.5] * 540)

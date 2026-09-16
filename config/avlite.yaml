@@ -1,0 +1,20 @@
+# AVLite settings use metres, seconds, radians, and m/s (not normalized throttle).
+c30_control:
+  c32_ego_distance_front_axle: 0.324
+  c32_ego_max_velocity: 0.5
+  c32_ego_max_acceleration: 1.0
+  c32_ego_min_acceleration: -2.0
+  c32_ego_max_steering: 0.5235987756
+  c32_ego_min_steering: -0.5235987756
+  c35_lookahead_distance: 1.0
+  c35_lookahead_speed_gain: 0.0
+  c35_min_lookahead: 0.6
+  c35_max_lookahead: 1.5
+  c35_cruise_velocity: 0.5
+  c35_bubble_radius: 0.24
+  c35_min_gap_width: 0.15
+  c35_lidar_z_min: -0.2
+  c35_lidar_z_max: 0.3
+  c35_valpha: 1.0
+  c35_vbeta: 0.0
+  c35_vgamma: 0.0
