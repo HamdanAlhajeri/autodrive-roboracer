@@ -48,6 +48,7 @@ then delegates to the unmodified stock API. No synthetic sensor values are sent.
 The source package and YAML configuration are mounted read-only into containers.
 After editing code or configuration, restart the affected services. Restart AVLite
 after changing its profile, and the adapter after changing actuator gains.
+Restart both after editing the shared `config/driving.yaml` file.
 Rebuild when changing the Dockerfile or dependencies.
 
 ## Topics, frames and units
@@ -57,7 +58,7 @@ Rebuild when changing the Dockerfile or dependencies.
 | `/autodrive/roboracer_1/lidar` | ROS `LaserScan`; 270-degree scan, nominal 1,080 beams |
 | `/autodrive/roboracer_1/odom` | Ground-truth world pose and body-frame longitudinal velocity |
 | `/avlite/control_command` | `AckermannDriveStamped`; steering in radians, acceleration in m/s²; `speed` is unused |
-| `/autodrive/roboracer_1/throttle_command` | Forward normalized `Float32`, constrained to `[0, 0.02]` |
+| `/autodrive/roboracer_1/throttle_command` | Forward normalized `Float32`, constrained to `[0, max_throttle]` from `config/driving.yaml` |
 | `/autodrive/roboracer_1/steering_command` | Normalized `Float32` in `[-1, 1]`, positive left |
 | `/autodrive/reset_command` | `Bool`; clears controller readiness and actuator integrators |
 | `.../lap_count`, `.../collision_count` | Simulator counters used to validate a run |
@@ -81,12 +82,25 @@ The upstream controller still computes the steering angle and acceleration.
 
 ## Actuator conversion and stopping
 
-`config/avlite.yaml` contains the small-car AVLite profile.
-`config/actuator.yaml` contains the independently enforced limits and speed gains.
-The adapter integrates AVLite acceleration into a speed demand, capped at 0.5 m/s,
-then tracks that demand with feedforward plus PI speed feedback. Acceleration is
+`config/driving.yaml` is the shared source for `speed_mps` and `max_throttle`.
+The AVLite and actuator profiles use `shared_settings: driving.yaml` with
+`${speed_mps}` / `${max_throttle}` references. Paths are relative to each profile,
+and the launchers resolve the references to numbers before starting either node.
+Speed must be finite and positive; throttle must be finite and in `(0, 1]`.
+Missing files, unknown references, and invalid shared settings fail startup.
+
+`config/avlite.yaml` contains the remaining small-car AVLite settings.
+`config/actuator.yaml` contains the remaining adapter limits and speed gains.
+Load the latter with `python3 -m avlite_autodrive.adapter --config /config/actuator.yaml`;
+ROS's raw `--params-file` parser does not resolve these references. Plain numeric
+ROS parameter files and `--ros-args` overrides remain supported.
+
+The adapter integrates AVLite acceleration into a speed demand, capped by the
+shared `speed_mps`, then tracks it with feedforward plus PI speed feedback. Acceleration is
 never interpreted directly as normalized throttle. Gains were calibrated against
 the practice simulator; do not assume they apply to a real car or another model.
+The recorded clean-lap validation used 0.5 m/s and a 0.02 throttle cap; changes to
+the shared settings do not extend those measured results to higher speeds.
 
 The adapter runs at 20 Hz and requires commands, odometry and scans less than
 0.5 seconds old. It rejects non-finite commands, stale command timestamps and
@@ -112,6 +126,19 @@ the original simulator GUI instructions in the README.
 
 ## Recording a lap
 
+On Windows, use `./record-windows.ps1 -Seconds 120 -Label corner-test` while the
+simulator and controllers are running. It saves a dated folder in `log/recordings/`
+with a PNG graph, CSV, raw JSONL, summary, configuration snapshots, and controller
+logs. The recording is passive and leaves the simulation running afterward.
+Reload edited configuration before capturing; snapshots describe files on disk.
+Wait for simulator/controller startup or restart to finish before recording.
+The recorder waits up to 30 seconds for valid odometry before starting the requested
+duration (`-WaitForOdomSeconds` on Windows, `--wait-for-odom` in Python). A 10-second
+loss of valid odometry ends capture with an error and preserves partial JSONL and
+the summary. Replacing the bridge leaves an existing recorder on the old network
+connection; start a new recording after the restart. A stationary car still sends
+odometry and can be recorded normally.
+
 Start the simulator, API and adapter without AVLite. If necessary restart the
 simulator while AVLite is stopped to begin from the initial position:
 
@@ -134,6 +161,19 @@ The recorder writes JSONL telemetry and `lap.summary.json`. It observes only:
 command above. `clean_lap` requires a lap-counter increase, unchanged collision
 counter and no observed reset. Start recording before driving from the initial
 position so the record covers the full lap. Logs are ignored by Git.
+
+To graph an existing JSONL recording on Linux:
+
+```bash
+docker compose -f docker-compose.avlite.yml run --rm --no-deps \
+  -v "$PWD/log/avlite:/records" --entrypoint /bin/bash avlite \
+  -c 'python -m avlite_autodrive.plot_recording /records/lap.jsonl'
+```
+
+This writes `lap.csv` and `lap.png` alongside the original file. Current recordings
+include UTC timestamps and the age of received messages; readings older than
+0.5 seconds appear as gaps in plots. Older recordings without age fields can
+still be graphed, but their freshness cannot be checked.
 
 ## Repeatable tests
 
