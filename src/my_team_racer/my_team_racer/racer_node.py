@@ -18,14 +18,14 @@ from std_msgs.msg import Float32
 
 
 # ── Tunable parameters ────────────────────────────────────────────────────────
-LOOKAHEAD_DIST   = 0.8    # metres — lookahead distance L
-WHEELBASE        = 0.32   # metres — RoboRacer wheelbase (approx)
-MAX_STEER_RAD    = 0.4    # radians — max physical steering angle for normalisation
-MAX_THROTTLE     = 0.4    # top speed on straights [0, 1]
-MIN_THROTTLE     = 0.1    # minimum speed in corners
-THROTTLE_DECAY   = 3.0    # corner braking aggressiveness
-WALL_CLIP_DIST   = 4.0    # clip LiDAR beyond this distance (metres)
-EMA_ALPHA        = 0.3    # smoothing factor for gy estimate (0=no update, 1=no filter)
+LOOKAHEAD_DIST = 0.8  # metres — lookahead distance L
+WHEELBASE = 0.32  # metres — RoboRacer wheelbase (approx)
+MAX_STEER_RAD = 0.4  # radians — max physical steering angle for normalisation
+MAX_THROTTLE = 0.4  # top speed on straights [0, 1]
+MIN_THROTTLE = 0.1  # minimum speed in corners
+THROTTLE_DECAY = 3.0  # corner braking aggressiveness
+WALL_CLIP_DIST = 4.0  # clip LiDAR beyond this distance (metres)
+EMA_ALPHA = 0.3  # smoothing factor for gy estimate (0=no update, 1=no filter)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -79,10 +79,10 @@ class RacerNode(Node):
         ys = ranges * np.sin(angles)
 
         fwd = xs > 0.05
-        left_pts  = ys[fwd & (ys >= 0)]
-        right_pts = ys[fwd & (ys <  0)]
+        left_pts = ys[fwd & (ys >= 0)]
+        right_pts = ys[fwd & (ys < 0)]
 
-        left_dist  = float(np.median(left_pts))   if len(left_pts)  > 0 else 1.0
+        left_dist = float(np.median(left_pts)) if len(left_pts) > 0 else 1.0
         right_dist = float(np.median(-right_pts)) if len(right_pts) > 0 else 1.0
 
         # signed lateral offset to the centerline in metres (positive = left)
@@ -110,6 +110,7 @@ class RacerNode(Node):
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
+
 
 def main(args=None):
     rclpy.init(args=args)
