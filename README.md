@@ -1,8 +1,39 @@
-# AutoDRIVE RoboRacer — Pure Pursuit
+# AutoDRIVE RoboRacer — AVLite integration
 
-ICRA 2026 autonomous racing submission using a LiDAR-based pure pursuit algorithm.
+Run AV-Lab's AVLite execution stack on the AutoDRIVE RoboRacer practice simulator.
+The original LiDAR pure-pursuit controller is also available.
 
-## Quick start
+## AVLite quick start
+
+Requires Docker Compose, an NVIDIA GPU/container runtime, and a local X11 display.
+
+```bash
+# Stop the original controller before starting AVLite.
+docker compose down
+xhost +si:localuser:root
+docker compose -f docker-compose.avlite.yml build
+docker compose -f docker-compose.avlite.yml up -d
+docker compose -f docker-compose.avlite.yml logs -f avlite actuator
+```
+
+This starts the simulator in batch mode and drives automatically once live LiDAR
+and odometry arrive. The speed demand is capped at **0.5 m/s** and normalized
+throttle at **0.02**. These are controller limits, not guaranteed physical speed
+bounds. The independent adapter commands zero if AVLite or sensor data stops.
+
+Stop driving first, leaving the adapter and API alive to transmit zero:
+
+```bash
+docker compose -f docker-compose.avlite.yml stop avlite
+sleep 1
+docker compose -f docker-compose.avlite.yml down
+```
+
+See [setup and architecture](docs/avlite-setup.md), the
+[saved implementation plan](docs/avlite-integration-plan.md), and
+[measured validation results](docs/avlite-validation.md).
+
+## Original controller quick start
 
 ```bash
 # Allow X11 forwarding (run once per session)
@@ -48,9 +79,9 @@ Key tuning constants at the top of [racer_node.py](src/my_team_racer/my_team_rac
 | Constant | Default | Effect |
 |---|---|---|
 | `LOOKAHEAD_DIST` | `0.8 m` | Longer = smoother but lazier |
-| `MAX_THROTTLE` | `0.6` | Top speed on straights |
-| `STEER_GAIN` | `1.2` | Steering aggressiveness |
-| `THROTTLE_DECAY` | `2.5` | Corner braking strength |
+| `MAX_THROTTLE` | `0.4` | Throttle ceiling on straights |
+| `WHEELBASE` | `0.32 m` | Vehicle length used in steering geometry |
+| `THROTTLE_DECAY` | `3.0` | Throttle reduction in corners |
 
 ## ROS 2 topics
 
