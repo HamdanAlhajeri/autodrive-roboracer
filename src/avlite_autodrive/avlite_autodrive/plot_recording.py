@@ -121,6 +121,7 @@ def plot_path_events(axis, rows, x, y):
 
 def plot_speed_targets(axis, rows, elapsed):
     for key, label, age in (
+        ("planned_speed_mps", "Planned speed", "controller_diagnostics_age_s"),
         ("target_velocity_mps", "Controller target", "controller_diagnostics_age_s"),
         ("actuator_target_speed_mps", "Actuator demand", "actuator_diagnostics_age_s"),
     ):
@@ -417,6 +418,51 @@ def saved_speed_ceiling(recording):
     return load_config(profile)["c30_control"]["c32_ego_max_velocity"]
 
 
+def plot_planned_report(rows, artifact, output):
+    """Compare the executed path and speeds in closed-track distance coordinates."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from .race_map import ClosedPath
+
+    path = ClosedPath(artifact["path"])
+    fig, axes = plt.subplots(2, 2, figsize=(13, 10), layout="constrained")
+    route_ax, speed_ax, error_ax, reason_ax = axes.flat
+    for key, label in (("LeftBound", "Left boundary"), ("RightBound", "Right boundary")):
+        xy = np.asarray(artifact["map"][key])
+        route_ax.plot(*np.vstack([xy, xy[0]]).T, linewidth=1, label=label)
+    route_ax.plot(*np.vstack([path.points, path.points[0]]).T, "k--", label="Planned line")
+    route_ax.scatter(series(rows, "x", "odom_age_s"), series(rows, "y", "odom_age_s"),
+                     c=series(rows, "speed", "odom_age_s"), s=5, label="Driven path")
+    route_ax.set(aspect="equal", xlabel="World X (m)", ylabel="World Y (m)")
+    speed_ax.plot(artifact["distance_m"], artifact["velocity"], color="black",
+                  label="Planned speed")
+    progress = series(rows, "path_progress_m", "controller_diagnostics_age_s")
+    for key, label, age in (("speed", "Actual speed", "odom_age_s"),
+                            ("target_velocity_mps", "Controller target",
+                             "controller_diagnostics_age_s")):
+        speed_ax.scatter(progress, series(rows, key, age), s=5, label=label)
+    speed_ax.set(xlabel="Distance around planned lap (m)", ylabel="m/s")
+    elapsed = series(rows, "elapsed_s")
+    error_ax.plot(elapsed, series(rows, "path_deviation_m", "controller_diagnostics_age_s"))
+    error_ax.set(xlabel="Elapsed time (s)", ylabel="Path deviation (m)")
+    reason_ax.step(elapsed, series(rows, "speed_limit_reason", "controller_diagnostics_age_s"),
+                   where="post")
+    reason_ax.set(yticks=range(7), yticklabels=[
+        "Speed ceiling", "Corner/braking", "Obstacle", "Invalid pose", "Stale scan",
+        "Commissioning", "Invalid plan"], xlabel="Elapsed time (s)")
+    route_ax.legend(fontsize=8)
+    speed_ax.legend(fontsize=8)
+    for ax in axes.flat:
+        ax.grid(alpha=0.2)
+    fig.suptitle("Planned versus measured driving")
+    try:
+        fig.savefig(output, dpi=160)
+    finally:
+        plt.close(fig)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("recording", type=Path, help="JSONL file produced by record_lap")
@@ -445,6 +491,11 @@ def main():
         control_path = args.recording.with_suffix(".control.png")
         plot_control_report(rows, control_path)
         print(f"Control diagnostics: {control_path}", flush=True)
+    artifact_path = args.recording.with_suffix(".plan.json")
+    if artifact_path.exists():
+        planned_path = args.recording.with_suffix(".planned.png")
+        plot_planned_report(rows, json.loads(artifact_path.read_text()), planned_path)
+        print(f"Planned-driving diagnostics: {planned_path}", flush=True)
 
 
 if __name__ == "__main__":

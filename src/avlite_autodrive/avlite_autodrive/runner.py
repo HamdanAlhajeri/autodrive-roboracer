@@ -9,8 +9,12 @@ from avlite.c10_perception.c11_perception_model import EgoState, PerceptionModel
 from avlite.c30_control.c39_settings import ControlSettings
 from avlite.c40_execution.c49_settings import ExecutionSettings
 from avlite.c40_execution.c44_sync_executer import SyncExecuter
+from avlite.c20_planning.c26_local_path_planners import ReferencePathPlanner
+from avlite.c50_common.c51_capabilities import StackCapability
 from .plugin import AutoDRIVEFollowTheGap, AutoDRIVEWorldBridge
+from .plugin.planned_controller import AutoDRIVEPlannedController
 from .configuration import load_config
+from .race_planning import prepare_plan
 
 
 def main():
@@ -31,10 +35,27 @@ def main():
         ControlSettings.c35_cruise_velocity,
         ControlSettings.c32_ego_max_velocity,
     )
+    mode = config.get("driving_mode", "follow_the_gap")
+    if mode not in ("follow_the_gap", "planned"):
+        raise ValueError("driving_mode must be follow_the_gap or planned")
+    # Preparation happens before the ROS bridge can send any command.
+    prepared = prepare_plan(config, args.config) if mode == "planned" else None
+    pm = PerceptionModel(ego_vehicle=EgoState(x=0, y=0))
+    local_planner = None
+    controller = (AutoDRIVEPlannedController(prepared) if prepared else
+                  AutoDRIVEFollowTheGap(racing=config.get("racing")))
     world = AutoDRIVEWorldBridge()
-    controller = AutoDRIVEFollowTheGap(racing=config.get("racing"))
+    if prepared:
+        world.map = prepared.planner.map
+        world.reference_point = world.map.reference_point
+        world.stack_capabilities |= frozenset({StackCapability.MAP_RACE_TRACK})
+        ExecutionSettings.c41_world_stack_capabilities = ["LOCALIZATION", "MAP_RACE_TRACK"]
+        local_planner = ReferencePathPlanner(prepared.global_plan, pm)
+        world.publish_plan(prepared.artifact)
     stack = SyncExecuter(
-        perception_model=PerceptionModel(ego_vehicle=EgoState(x=0, y=0)),
+        perception_model=pm,
+        global_planner=prepared.planner if prepared else None,
+        local_planner=local_planner,
         controller=controller,
         world=world,
         control_dt=0.05,
@@ -48,7 +69,7 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     generation, was_ready = world.reset_generation, False
-    logging.info("AVLite SyncExecuter + AutoDRIVEFollowTheGap; waiting for live sensors")
+    logging.info("AVLite SyncExecuter + %s; waiting for live sensors", type(controller).__name__)
     previous_start = time.monotonic()
     try:
         while not stopped:
@@ -57,6 +78,8 @@ def main():
             ready = world.ready
             if ready != was_ready or generation != world.reset_generation:
                 controller.reset()
+                if local_planner:
+                    local_planner.reset()
                 generation = world.reset_generation
                 logging.info(
                     "Sensors %s", "ready" if ready else "unavailable: withholding commands"
@@ -67,7 +90,8 @@ def main():
                     control_dt=0.05,
                     sim_dt=0.05,
                     call_perceive=False,
-                    call_replan=False,
+                    call_replan=prepared is not None,
+                    replan_dt=0.05,
                     call_localize=False,
                     pace_control=False,
                 )

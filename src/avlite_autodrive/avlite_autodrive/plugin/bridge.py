@@ -10,7 +10,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import SingleThreadedExecutor
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy
 from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
@@ -19,9 +19,10 @@ from std_msgs.msg import Bool, String
 from avlite.c40_execution.c41_world_bridge import WorldBridge
 from avlite.c10_perception.c11_perception_model import EgoState, PerceptionModel
 from avlite.c50_common.c51_capabilities import StackCapability, WorldCapability
-from avlite.c50_common.c52_world_sensor_datatypes import Lidar, SensorFrame
+from avlite.c50_common.c52_world_sensor_datatypes import Lidar
 from avlite_autodrive.ros_utils import PREFIX, odom_state, valid_scan
-from avlite_autodrive.sensors import scan_cloud
+from avlite_autodrive.sensors import scan_cloud, scan_hit_mask
+from .planned_controller import AutoDRIVESensorFrame
 
 
 class AutoDRIVEWorldBridge(WorldBridge):
@@ -35,6 +36,7 @@ class AutoDRIVEWorldBridge(WorldBridge):
         self.map = None
         self.lock = threading.Lock()
         self.cloud = None
+        self.hit_mask = None
         self.scan_time = self.odom_time = -math.inf
         self.snapshot_ego = copy.deepcopy(self.ego_state)
         self.reset_generation = 0
@@ -51,6 +53,10 @@ class AutoDRIVEWorldBridge(WorldBridge):
         )
         self.diagnostics_publisher = self.node.create_publisher(
             String, "/avlite/controller_diagnostics", 1
+        )
+        self.plan_publisher = self.node.create_publisher(
+            String, "/avlite/race_plan",
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
         )
         self.node.create_subscription(
             LaserScan, PREFIX + "/lidar", self.on_scan, qos_profile_sensor_data
@@ -75,6 +81,7 @@ class AutoDRIVEWorldBridge(WorldBridge):
     def on_scan(self, msg):
         with self.lock:
             self.cloud = scan_cloud(msg) if valid_scan(msg) else None
+            self.hit_mask = scan_hit_mask(msg) if self.cloud is not None else None
             self.scan_time = time.monotonic() if self.cloud is not None else -math.inf
 
     def on_odom(self, msg):
@@ -101,6 +108,7 @@ class AutoDRIVEWorldBridge(WorldBridge):
         with self.lock:
             self.reset_generation += 1
             self.cloud = None
+            self.hit_mask = None
             self.scan_time = self.odom_time = -math.inf
             self.last_pose = None
 
@@ -108,14 +116,21 @@ class AutoDRIVEWorldBridge(WorldBridge):
         # Capture sensor and ego snapshots together for a single AVLite tick.
         with self.lock:
             self.snapshot_ego = copy.deepcopy(self.ego_state)
-            return SensorFrame(
+            now = time.monotonic()
+            return AutoDRIVESensorFrame(
                 lidar=None if self.cloud is None else self.cloud.copy(),
                 lidar_sensor=self.sensor,
                 frame_id="roboracer_1",
+                lidar_hit_mask=None if self.hit_mask is None else self.hit_mask.copy(),
+                lidar_age_s=now - self.scan_time,
+                odom_age_s=now - self.odom_time,
             )
 
     def get_ego_state(self):
         return copy.deepcopy(self.snapshot_ego)
+
+    def publish_plan(self, artifact):
+        self.plan_publisher.publish(String(data=json.dumps(artifact, allow_nan=False)))
 
     def control_ego_state(self, cmd, dt=0.05):
         if not self.ready:

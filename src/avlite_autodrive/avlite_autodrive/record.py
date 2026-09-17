@@ -10,7 +10,7 @@ from pathlib import Path
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy
 from rclpy.signals import SignalHandlerOptions
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
@@ -135,6 +135,24 @@ def main():
             state.update(values)
             last_received[name] = time.monotonic()
 
+    def race_plan(msg):
+        # Capture the plan actually used by the running controller, not a later
+        # recomputation using possibly edited files. The topic is latched at startup.
+        try:
+            artifact = json.loads(msg.data)
+            if (artifact.get("version") != 1 or artifact.get("frame_id") != "world"
+                    or not artifact.get("path") or not artifact.get("map")
+                    or len(artifact["velocity"]) != len(artifact["path"])):
+                raise ValueError("invalid race-plan artifact")
+            payload = json.dumps(artifact, indent=2, allow_nan=False) + "\n"
+            path.with_suffix(".plan.json").write_text(payload)
+            path.with_suffix(".racemap.json").write_text(
+                json.dumps(artifact["map"], indent=2, allow_nan=False) + "\n")
+            path.with_suffix(".planning-config.json").write_text(
+                json.dumps(artifact["resolved_config"], indent=2, allow_nan=False) + "\n")
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+            node.get_logger().error(f"Ignoring invalid race plan: {exc}")
+
     def check_counters(now, elapsed):
         nonlocal counter_telemetry_status, counter_telemetry_error
         nonlocal counter_baseline_before_motion
@@ -194,6 +212,8 @@ def main():
         node.create_subscription(LaserScan, PREFIX + "/lidar", scan, qos_profile_sensor_data)
     node.create_subscription(AckermannDriveStamped, "/avlite/control_command", command, 10)
     node.create_subscription(Bool, "/autodrive/reset_command", reset, 10)
+    node.create_subscription(String, "/avlite/race_plan", race_plan,
+                             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
     for name, fields in (("controller_diagnostics", CONTROLLER_FIELDS),
                          ("actuator_diagnostics", ACTUATOR_FIELDS)):
         node.create_subscription(String, "/avlite/" + name,

@@ -3,6 +3,12 @@
 import numpy as np
 
 
+def scan_hit_mask(msg):
+    """Exclude clear beams, retaining corrupt beams as the close obstacles in scan_cloud."""
+    ranges = np.asarray(msg.ranges, dtype=np.float64)
+    return ~(np.isposinf(ranges) | (np.isfinite(ranges) & (ranges >= msg.range_max)))
+
+
 def scan_cloud(msg):
     ranges = np.asarray(msg.ranges, dtype=np.float64)
     angles = msg.angle_min + np.arange(len(ranges)) * msg.angle_increment

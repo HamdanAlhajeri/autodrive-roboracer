@@ -12,6 +12,8 @@ CONTROLLER_FIELDS = frozenset({
     "controller_odom_age_s",
     "gap_preview_requested_m", "gap_preview_selected_m", "gap_preview_fallback",
     "target_bearing_raw_rad", "target_bearing_rad",
+    "planned_mode", "plan_valid", "planned_speed_mps", "path_progress_m",
+    "path_deviation_m", "obstacle_speed_limit_mps", "speed_limit_reason",
 })
 ACTUATOR_FIELDS = frozenset({
     "actuator_target_speed_mps", "throttle_saturated", "actuator_steering_saturated",
