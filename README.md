@@ -31,7 +31,7 @@ Edit [config/driving.yaml](config/driving.yaml) for the shared limits. The curre
 corner-preview candidate uses:
 
 ```yaml
-speed_mps: 2.5
+speed_mps: 3.0
 max_throttle: 0.2
 ```
 
@@ -60,14 +60,19 @@ the shorter speed-dependent steering distance and tight-bend fallback. It keeps
 the existing curvature/clearance speed caps and deceleration response.
 The new profile completed its first three-clean-lap screen at 2.5 m/s, reducing
 mean rolling lap time from 21.530 s to 15.333 s in the
-[comparison below](#tests-and-improvements). Higher-speed screening and final
-repeatability checks remain pending. See the
+[comparison below](#tests-and-improvements). The first **3.0 m/s** screen
+completed one lap, then collided after actuator updates stopped during a
+backward clock adjustment. With the steady-clock timer fix, the repeat completed
+**three clean laps at 3.0 m/s**, including another clock adjustment. See the
+[actuator before-and-after comparison](#reliable-actuator-updates--17-september-2026)
+and [failure analysis](docs/checklist-2026-09-21.md#30-ms-test-actuator-update-interruption).
+Final repeatability checks remain pending. See the
 [settings and diagnostic guide](docs/avlite-setup.md#corner-entry-screening-candidate).
 
 With the simulator open and connected, run:
 
 ```powershell
-.\record-one-lap.ps1 -Laps 3 -Label preview-v2-2p5
+.\record-one-lap.ps1 -Laps 3 -Label preview-v2-3p0-steady
 ```
 
 Reset when prompted. The script reloads the actuator, records up to three consecutive
@@ -75,7 +80,7 @@ laps, and stops AVLite if it detects a collision/reset or reaches the time limit
 It opens the path/speed graph; inspect `telemetry.control.png` in the same folder
 for target speed, actual slowdown, throttle, clearance and timing, plus the new
 preview-distance and target-bearing panels. Keep the entire folder when comparing
-results. Three clean laps with the new profile are the first screening gate;
+results. The first three-clean-lap screen at 3.0 m/s has passed;
 the [checklist](docs/checklist-2026-09-21.md) tracks later speed steps and final
 three-run, ten-lap acceptance separately.
 
@@ -146,6 +151,67 @@ its saved configuration and recorded preview diagnostics confirm `preview-v2`
 was active. These are one three-lap recording per profile. The
 [checklist](docs/checklist-2026-09-21.md) tracks further speed screening and the
 final requirement of three fresh runs with ten clean laps each.
+
+### Reliable actuator updates — 17 September 2026
+
+Changing the actuator timer to a **steady clock** allowed the 3.0 m/s test to
+finish **three clean laps with zero collisions or resets**. Both runs below used
+the same 3.0 m/s speed ceiling, 0.2 throttle cap and 1.5 m corner preview.
+
+**Before: actuator updates paused during a clock adjustment.** On lap two,
+recorded UTC moved backward by about 2.11 s. AVLite continued asking for braking
+and more steering, but the actuator stopped publishing updates. The car held
+about 0.094 throttle and 5.25 degrees of steering, travelling at 2.33 m/s until
+it hit the upper boundary. The last actuator command was 1.82 s old at impact.
+
+![Before: the 3.0 m/s run completes one lap, then collides at the upper bend during an actuator update interruption](docs/validation/actuator-timing/before.png)
+
+**What changed:** the actuator's 20 Hz timer in
+[adapter.py](src/avlite_autodrive/avlite_autodrive/adapter.py) now explicitly uses
+`ClockType.STEADY_TIME`. The original timer followed the node's ROS/system clock,
+so a backward clock adjustment could delay the next callback. Both actuator
+publication and watchdog checks run in that callback. A steady clock measures
+elapsed time independently of system-time corrections, allowing those checks
+and commands to continue. Exactly one actuator timer runs; speed, preview and
+braking settings were kept the same between these two tests.
+
+**After: commands continued through another clock adjustment.** During the
+repeat, recorded UTC moved backward by about 2.35 s, but the maximum sampled age
+of the outgoing throttle/steering commands stayed below 56 ms. The car completed
+all three laps and the upper bend without the earlier held-command failure.
+
+![After: the steady-clock actuator completes three clean laps at a 3.0 m/s ceiling with zero collisions](docs/validation/actuator-timing/after.png)
+
+| Measurement | Before: default timer | After: steady timer |
+| --- | --- | --- |
+| Completed laps / requested | 1 / 3 | 3 / 3 |
+| Collisions / vehicle resets | 1 / 0 | 0 / 0 |
+| Three-lap screening result | Failed | Passed |
+| Maximum sampled outgoing command age | 1.822 s | 0.055 s |
+| Rolling lap times | None completed | 15.375 / 15.693 s |
+| Mean rolling lap time | Unavailable | 15.534 s |
+| Measured peak speed | 2.976 m/s | 2.975 m/s |
+
+This demonstrates improved command delivery through clock changes in the
+recorded run. It does not establish a lap-time improvement: the earlier clean
+2.5 m/s profile averaged 15.333 s, about 1.3% quicker than this run. Higher speed
+settings still need tuning and repeatability testing. Clock adjustments also
+remain visible in sensor timestamps; the timer fix does not correct their source.
+
+An isolated adapter test also verified continued updates with ROS time paused
+and moved backward, plus zero throttle/steering after inputs became stale.
+Regression coverage lives in
+[test_adapter_clock.py](src/avlite_autodrive/test/test_adapter_clock.py).
+An independent bridge timeout and recorder checks for stale actuator outputs
+remain on the [checklist](docs/checklist-2026-09-21.md#30-ms-test-actuator-update-interruption).
+
+Saved evidence: [before summary](docs/validation/actuator-timing/before.summary.json)
+from `20260917-075757-575-preview-v2-3p0` and
+[after summary](docs/validation/actuator-timing/after.summary.json)
+from `20260917-100851-863-preview-v2-3p0`. The run label was reused; the second
+recording was made after the actuator timer correction. These are one recording
+per version, and the failed version has no complete rolling lap for a timing
+comparison. Final acceptance remains three fresh runs of ten clean laps each.
 
 ## Record laps and open the graph (Windows)
 

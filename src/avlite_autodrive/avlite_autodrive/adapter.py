@@ -7,6 +7,7 @@ import signal
 import time
 
 import rclpy
+from rclpy.clock import Clock, ClockType
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
@@ -44,7 +45,9 @@ class ActuatorAdapter(Node):
         self.previous_pose = None
         self.previous_time = time.monotonic()
         self.last_reason = None
-        self.create_timer(0.05, self.tick)
+        # Keep publishing and evaluating the watchdog across wall-clock changes.
+        self.control_clock = Clock(clock_type=ClockType.STEADY_TIME)
+        self.control_timer = self.create_timer(0.05, self.tick, clock=self.control_clock)
 
     def on_command(self, msg):
         # Reject delayed/replayed commands even when DDS delivers them just now.

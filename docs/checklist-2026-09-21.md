@@ -105,7 +105,7 @@ lap timer also includes startup waiting. The counter reaching one is not a pass.
 | Target on suitable straights | Three clean laps | Evidence / status |
 | --- | --- | --- |
 | 2.5 m/s | [x] | `corner-v1` and `preview-v2` each passed a three-clean-lap screen; latest preview run `20260916-233141-867-corner-v1-2p5` |
-| 3.0 m/s | [ ] | Pending |
+| 3.0 m/s | [x] | `20260917-100851-863-preview-v2-3p0`: three clean laps after the steady-clock timer fix; prior failed attempt retained below |
 | 3.5 m/s | [ ] | Pending |
 | 4.0 m/s | [ ] | Pending |
 | 4.5 m/s | [ ] | Pending |
@@ -171,6 +171,15 @@ starts a new screening result rather than inheriting another profile's clean lap
 | `20260916-230923-188-corner-v1-2p5` | Recording rejected after lap/collision telemetry was stale for over 0.5 s; no completed laps | Retain as an interrupted attempt; do not relax the freshness requirement |
 | `20260916-231003-523-corner-v1-2p5`, track overlay enabled | Three clean laps; zero collisions/resets; rolling laps 20.604 / 22.457 s; peak 2.4859 m/s | Late turn selection repeats at the bottom bend on all three laps; separate preview from steering distance before increasing speed |
 | `20260916-233141-867-corner-v1-2p5`, actually `preview-v2` | Three clean laps; zero collisions/resets; rolling laps 15.069 / 15.597 s; mean 15.333 s; peak 2.4859 m/s | First screen passed; mean rolling lap time 28.8% lower than `231003`; preserve this profile and assess detailed corner behavior before increasing speed |
+| `20260917-075757-575-preview-v2-3p0`, 3.0 m/s, cap 0.2 | One completed lap, one collision, zero resets; first driving lap 16.056 s; no complete rolling lap; peak 2.976 m/s | Failed screen; actuator output stopped for at least 1.82 s across a backward clock adjustment; repair timing before repeating unchanged settings |
+| `20260917-100851-863-preview-v2-3p0`, steady-clock actuator | Three clean laps; zero collisions/resets; rolling laps 15.375 / 15.693 s; mean 15.534 s; peak 2.9753 m/s | Passed 3.0 m/s screen; command age stayed below 56 ms across a 2.348 s clock rollback; mean lap time remains 1.3% above the 2.5 m/s baseline |
+
+The current candidate is `preview-v2-3p0`, prepared on September 17 at the user's
+request after the 2.5 m/s screening pass. Only the shared speed ceiling increases
+to 3.0 m/s; throttle remains 0.2 and controller settings are unchanged. Its first
+screen failed during the timing interruption described below; the repeat passed
+after correcting the actuator timer. The 2.5 m/s configuration in the `233141`
+recording remains the fastest passing profile by measured rolling mean.
 
 The candidate requests at least 1.5 m of gap preview, with the existing shorter
 fallback, while retaining steering lookahead gain 0.4 s bounded to 0.6–1.8 m; initial lateral
@@ -222,16 +231,82 @@ straight driving, blocked paths, shorter fallback and reset handling; Python
 lint and whitespace checks also passed. These checks do not establish live
 lap performance or clearance through a moving turn.
 
-For another run with an explicit preview profile label, connect the simulator and run:
+The actuator timer correction passed the checks below. Repeat the three-lap
+screen at the same 3.0 m/s with:
 
 ```powershell
-.\record-one-lap.ps1 -Laps 3 -Label preview-v2-2p5
+.\record-one-lap.ps1 -Laps 3 -Label preview-v2-3p0-steady
 ```
 
 Reset when prompted and keep the complete recording folder, including
-`telemetry.lap.png` and `telemetry.control.png`. The `233141` run passed this
-screen despite reusing the old `corner-v1` folder label: its saved configuration
+`telemetry.lap.png` and `telemetry.control.png`. The earlier `233141` run passed
+the 2.5 m/s screen despite reusing the old `corner-v1` folder label: its saved configuration
 and live diagnostics show the 1.5 m preview was active. Curated graphs and
 summaries are linked in the [README comparison](../README.md#tests-and-improvements).
 Detailed steering-onset, saturation and clearance comparison, higher-speed
 screening and three fresh ten-lap acceptance runs remain pending.
+
+### 3.0 m/s test: actuator update interruption
+
+The `20260917-075757-575-preview-v2-3p0` recording is a failed screen, with
+valid lap/collision counters. It completes one lap before colliding at the upper
+bend on lap two. The first-motion-to-finish time is 16.056 s, versus 15.607 s
+for the passing 2.5 m/s recording; there is no completed rolling lap to compare
+with that profile's 15.333 s rolling mean. The simulator's saved last-lap field
+of 118.985 s does not match the measured driving interval and is not used.
+
+The failure has a distinct actuator-timing signature:
+
+| Recording elapsed time | Observation |
+| --- | --- |
+| 30.785–30.886 s | Recorded UTC steps backward by approximately 2.114 s in total; actuator publication stops |
+| 30.990 s | AVLite requests -1.5 m/s² braking, but throttle feedback remains 0.094 |
+| 31.199 s | Age of the last actuator command passes 0.5 s while sensor/controller updates continue |
+| 32.236 s | AVLite asks for -30 degrees steering; physical steering remains about -5.25 degrees |
+| 32.511 s | Collision counter rises; last actuator command is 1.822 s old |
+
+During the interruption, speed stays near 2.332 m/s until impact. No controller
+overrun is recorded: maximum compute time is 7.62 ms and maximum loop interval
+53.36 ms. A similar 1.806 s backward clock adjustment at startup accompanies a
+1.856 s actuator-loop gap and a `control timing discontinuity` log entry.
+
+The likely mechanism is the default ROS/system-clock timer in
+[adapter.py](../src/avlite_autodrive/avlite_autodrive/adapter.py). Both actuator
+publishing and its watchdog run inside that timer callback. Monotonic age checks
+inside the callback cannot run while the timer itself is paused. The stock
+simulator bridge continues sending the last actuator values. This strongly
+supports a clock-sensitive scheduling failure; the recording does not identify
+the Windows/WSL source of the clock correction.
+
+- [x] Schedule actuator publication and watchdog checks on a steady clock.
+- [ ] Add an independent command-age stop guard at the simulator bridge.
+- [ ] Include stale actuator publication in recording health and screening checks.
+- [x] Verify continuing updates and stopping behavior under backward clock changes.
+- [x] Repeat the unchanged 3.0 m/s / 1.5 m preview profile after the timing fix:
+  `20260917-100851-863-preview-v2-3p0` passed three clean laps.
+
+Driving settings were unchanged between the failed and passing 3.0 m/s runs.
+The first result establishes an actuator-output interruption; the repeat
+provides the first successful three-lap screen at this speed.
+
+Timer correction validation: 30 actuator/integration tests passed, including
+the permanent paused/backward-clock regression. An isolated
+test of the actual adapter kept updates running with ROS time paused and moved
+backward by two seconds (maximum callback interval 55.1 ms); the stale-input
+watchdog sent zero throttle and steering after 0.516 s. A comparison ROS-clock
+timer stopped firing under the same stimulus. No host clocks or live simulator
+services were changed. The independent bridge timeout remains open.
+
+The live repeat experienced another recorded UTC rollback of 2.348 s around
+27.4–27.6 s, yet maximum sampled outgoing throttle/steering command ages stayed
+below 55.1 ms and actuator loop intervals below 55.2 ms. No controller overruns
+or moving steering-saturated samples were observed. This supports the scheduling
+fix under an actual clock disturbance; it does not identify or eliminate the
+source of the clock corrections. The outline mapper rejected 205 nonmonotonic
+scan stamps and 205 odometry stamps, with one internal pairing-history reset;
+the vehicle reset count remained zero.
+
+The rolling mean is 15.534 s versus the earlier 2.5 m/s run's 15.333 s, so this
+is a reliability improvement, not evidence of faster laps. Curated graphs and
+summaries are in the [README comparison](../README.md#reliable-actuator-updates--17-september-2026).
+The three fresh ten-lap acceptance runs remain pending.
