@@ -84,9 +84,16 @@ The upstream controller still computes the steering angle and acceleration.
 
 ## Corner-entry screening candidate
 
-The `preview-v2` candidate keeps `speed_mps: 2.5`, `max_throttle: 0.2` in
-`config/driving.yaml`. Its first three-lap screen passed with zero collisions or
-resets, reducing mean rolling lap time from 21.530 s to 15.333 s against the
+The current `preview-v2` profile uses `speed_mps: 3.0`, `max_throttle: 0.2` in
+`config/driving.yaml`, with corner-preview settings unchanged. The first 3.0 m/s
+test failed after one completed lap: actuator updates stopped during a backward
+clock adjustment, followed by a collision. The steady-clock actuator repeat
+completed three clean laps with zero collisions/resets and a 15.534 s rolling
+mean, while commands continued through another clock adjustment. See the
+[before-and-after comparison](../README.md#reliable-actuator-updates--17-september-2026) and
+[failure analysis](checklist-2026-09-21.md#30-ms-test-actuator-update-interruption).
+Its first three-lap screen at 2.5 m/s passed with zero collisions
+or resets, reducing mean rolling lap time from 21.530 s to 15.333 s against the
 previous coupled-lookahead profile. See the
 [before-and-after graphs](../README.md#tests-and-improvements). Higher-speed
 screening and the final repeatability checks remain pending.
@@ -127,7 +134,7 @@ candidate extends the existing AVLite plugin; it does not import the Nav2 contro
 With the simulator open and connected, run:
 
 ```powershell
-.\record-one-lap.ps1 -Laps 3 -Label preview-v2-2p5
+.\record-one-lap.ps1 -Laps 3 -Label preview-v2-3p0-steady
 ```
 
 Reset at the prompt and leave **Connection** and **Autonomous** selected. Inspect
@@ -320,7 +327,7 @@ Both Windows recording scripts now capture a lightweight LiDAR outline by
 default. Run the same command as before:
 
 ```powershell
-.\record-one-lap.ps1 -Laps 3 -Label track-baseline-2p5
+.\record-one-lap.ps1 -Laps 3 -Label preview-v2-3p0-steady
 ```
 
 `telemetry.lap.png` and the path panel in `telemetry.png` draw observed LiDAR
@@ -362,9 +369,9 @@ all three laps. Feedback delay adds to it but does not explain the zero command.
 The previous controller chose an opening at its steering lookahead. Braking
 shortened that lookahead, reaching the 0.6 m floor in 51.9% of moving samples.
 Increasing the gain from 0.4 to 0.6 alone leaves both at the same floor below
-1 m/s. The prepared `preview-v2` experiment instead separates gap-search preview
-from the steering distance, as described above. Keep the gain and fallback
-minimum unchanged while testing it at the same 2.5 m/s.
+1 m/s. The `preview-v2` controller instead separates gap-search preview from the
+steering distance, as described above, and passed its first screen at the same
+2.5 m/s. The next 3.0 m/s screen keeps the gain and fallback minimum unchanged.
 
 The speed dip near 49 s also coincides with reported sensor ages of about 0.32 s;
 investigate that interruption separately. No controller overrun was recorded.
