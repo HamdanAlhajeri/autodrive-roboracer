@@ -8,6 +8,8 @@ This integration uses [AV-Lab/avlite](https://github.com/AV-Lab/avlite) at commi
 Pure Pursuit steering and velocity PID, against a ROS-backed `WorldBridge`.
 The simulator supplies ground-truth localization; mapping, SLAM, global planning,
 and AVLite's dashboard are not enabled for this initial reactive driving setup.
+An optional built-in race planner is now available; see
+[planned driving](planned-driving.md) for its map, commissioning, and recording workflow.
 
 ```mermaid
 flowchart LR

@@ -1,5 +1,22 @@
 # AVLite settings use metres, seconds, radians, and m/s (not normalized throttle).
 shared_settings: driving.yaml
+driving_mode: follow_the_gap  # Switch to planned only after preparing the map below.
+planning:
+  map_path: maps/practice.json  # Relative to this YAML; available under /config in Docker.
+  max_velocity_mps: ${speed_mps}
+  sample_spacing_m: 0.1
+  acceleration_mps2: 1.0
+  lateral_acceleration_mps2: 3.0
+  braking_deceleration_mps2: 1.5  # Provisional; replace with measured throttle-off response.
+  braking_calibrated: false
+  commissioning_speed_mps: 2.5  # Until braking is measured, planned mode cannot exceed this.
+  reaction_time_s: 0.25
+  clearance_margin_m: 0.15
+  vehicle_radius_m: 0.24
+  tracking_allowance_m: 0.05
+  wheelbase_m: 0.324
+  curvature_weight: 0.75
+  optimization_iterations: 3
 c30_control:
   c32_ego_distance_front_axle: 0.324
   c32_ego_max_velocity: ${speed_mps}

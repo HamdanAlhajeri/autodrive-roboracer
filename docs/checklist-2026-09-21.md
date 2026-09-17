@@ -1,7 +1,39 @@
 # September 21 execution checklist
 
-Updated: 16 September 2026. Scope and acceptance come from the
+Updated: 17 September 2026, including the 18:24 planned-mode screen (Dubai time).
+Scope and acceptance come from the
 [September 21 plan](plan-2026-09-21.md).
+
+## Built-in planner integration (17 September)
+
+Setup and operation: [planned driving](planned-driving.md).
+
+- [x] Integrate pinned AVLite GlobalRacePlanner -> ReferencePathPlanner -> Pure Pursuit.
+- [x] Build a reference-assisted RaceMap and validate the full small-car envelope,
+  steering feasibility, and cyclic acceleration/braking profile before driving.
+- [x] Add periodic lookahead, reset handling, curved-path obstacle stopping, and
+  explicit handling of no-return LiDAR beams. Keep Follow the Gap as the default.
+- [x] Record the active map/plan/settings and planned-versus-actual speed/path graphs.
+- [x] Pass 239 automated tests, including the planned executor and latched ROS
+  recording integration; add six braking-analysis and two obstacle-validation
+  regression tests, all passing. See [commissioning evidence](validation/planned-commissioning.md).
+- [x] Complete the initial 2.5 m/s planned-mode three-lap screen:
+  `20260917-182353-462-planned-commissioning-2p5`, three clean laps, zero collisions/resets,
+  peak measured 2.5022 m/s; rolling laps 12.609 / 12.617 s (mean 12.613 s).
+  Moving/fresh-diagnostic samples: path error p95 1.27 cm (max 5.24 cm), controller
+  work p95 22.30 ms (max 45.31 ms), zero sampled controller overruns. Sensor ages
+  still peak near 0.28 s; track that separately from controller scheduling.
+- [ ] Measure straight throttle-off response before enabling speeds above the
+  commissioning ceiling. Do not treat the provisional 1.5 m/s² value as measured.
+- [ ] Screen calibrated speed increments toward measured 5 m/s and complete
+  three fresh runs of ten clean laps. Mapping/localization acceptance is unchanged.
+
+This initial planned run's rolling mean is about 11.1% lower than the latest
+reactive run (`20260917-164344-474-3-laps`, 14.184 s), even with a 2.5 m/s
+commissioning cap. This is a first comparison, not the final repeatability result.
+The available recordings contain no qualifying straight coast intervals under
+the braking analyzer's freshness, steering, and duration criteria. Braking
+remains uncalibrated; higher-speed commissioning and final acceptance remain open.
 
 ## Objective and working rules
 
@@ -33,7 +65,7 @@ not the next milestone. Retain it as a regression reference when needed.
   start/stop and trajectory/speed graph: `record-one-lap.ps1`.
 - [x] Capture a 5 m/s failure case and locate both corner failures in telemetry.
 
-Latest failure evidence: local run `20260916-184246-822-one-lap` under
+Historical 5 m/s failure evidence: local run `20260916-184246-822-one-lap` under
 `log/recordings/` (ignored by Git). Configured speed 5 m/s, throttle cap 0.2;
 maximum measured speed 4.7487 m/s; two collisions and two observed resets/pose
 jumps. Collisions occurred at approximately 6.39 s and 12.60 s, in the bottom
@@ -97,22 +129,43 @@ lap timer also includes startup waiting. The counter reaching one is not a pass.
 - [x] Add lap-count/timing tests and check PowerShell argument forwarding and
   controller cleanup with mocked workflows.
 - [x] Summarize observed lap times and their mean/variation in JSON.
-- [ ] Summarize lap times and their variation, straight/corner speed, collisions,
+- [x] Compare the 3.0/3.5 and latest 4.5/5.0 m/s recordings using saved profiles,
+  actual speed, rolling lap times, corner behavior, throttle and timing diagnostics.
+- [ ] Complete a consistent summary of lap times/variation, straight/corner speed, collisions,
   resets, sensor interruptions, saturation and timing overruns for each profile.
-- [ ] Screen targets below in 0.5 m/s steps, requiring three clean laps with an
-  unchanged profile before advancing. Record failed attempts as well as passes.
+- [x] Complete the initial configured-speed sweep from 2.5 to 5.0 m/s in 0.5 m/s
+  steps, with three clean laps at each setting. Retain failed attempts as well as passes.
 
-| Target on suitable straights | Three clean laps | Evidence / status |
-| --- | --- | --- |
-| 2.5 m/s | [x] | `corner-v1` and `preview-v2` each passed a three-clean-lap screen; latest preview run `20260916-233141-867-corner-v1-2p5` |
-| 3.0 m/s | [x] | `20260917-100851-863-preview-v2-3p0`: three clean laps after the steady-clock timer fix; prior failed attempt retained below |
-| 3.5 m/s | [ ] | Pending |
-| 4.0 m/s | [ ] | Pending |
-| 4.5 m/s | [ ] | Pending |
-| 5.0 m/s | [ ] | Existing fixed-lookahead profile failed; see recorded evidence above |
+The checkmarks below mean three clean laps with that **configured ceiling**,
+not that the car reached or maintained that speed. All listed runs used a 0.2
+throttle cap. Means use the two complete intervals between three finish crossings,
+excluding the standing-start lap, setup waiting and capture tail.
 
-- [ ] Keep the fastest passing profile and its evidence. Explicitly record any
-  remaining failure at 5 m/s; do not present a higher speed setting as success.
+| Configured ceiling | Three clean laps | Measured peak | Rolling mean | Evidence / status |
+| --- | --- | --- | --- | --- |
+| 2.5 m/s | [x] | 2.486 m/s | 15.333 s | `20260916-233141-867-corner-v1-2p5`: saved profile is `preview-v2` despite the older label |
+| 3.0 m/s | [x] | 2.964 m/s | 14.286 s | `20260917-113015-651-3-laps`; earlier clock-related failure and successful repair retained below |
+| 3.5 m/s | [x] | 3.374 m/s | 14.358 s | `20260917-113630-368-3-laps`: higher peak, similar lap time; more time lost in the bottom bend |
+| 4.0 m/s | [x] | 3.683 m/s | 14.316 s | `20260917-114736-267-3-laps`: rolling laps 14.577 / 14.054 s; repeatability remains open |
+| 4.5 m/s | [x] | 3.728 m/s | 14.172 s | `20260917-120411-594-3-laps`: fastest observed clean-run mean; earlier same-setting run averaged 14.483 s |
+| 5.0 m/s | [x] | 3.754 m/s | 14.389 s | `20260917-120619-901-3-laps`: clean screen, but controller/sensor delays require investigation; actual 5 m/s not reached |
+
+- [x] Identify and retain the fastest observed clean-run mean and its saved profile:
+  4.5 m/s in `20260917-120411-594-3-laps`, with configuration and telemetry in that run folder.
+- [ ] Repeat unchanged profiles to establish the fastest reliable setting. The latest
+  pair favors 4.5 m/s by 0.217 s (1.53%), but earlier 4.5 m/s results and the timing
+  disturbance in the 5.0 run prevent a firm ranking from this comparison alone.
+- [ ] Investigate the 5.0 run's 368 ms controller step / 364 ms command age near
+  the bottom bend and the later 264 ms odometry / 218 ms LiDAR ages. Determine the
+  cause and repeat the run; preserve the watchdog thresholds.
+- [ ] Demonstrate measured speed approaching 5 m/s on suitable straights while
+  preserving clean cornering. Passing the configured 5.0 m/s screen does not complete this item.
+
+Keep `max_throttle: 0.2` for the next controlled comparisons: recorded driving
+commands peaked at 0.151 and 0.152 in the latest 4.5/5.0 runs, with no upper-cap
+saturation. The speed target falls with available clearance before the bottom
+bend. Investigate timing and corner-entry/acceleration behavior before increasing
+the speed ceiling or throttle cap further; calibrate braking before changing its assumptions.
 
 ### 4. Final driving acceptance
 
@@ -173,13 +226,19 @@ starts a new screening result rather than inheriting another profile's clean lap
 | `20260916-233141-867-corner-v1-2p5`, actually `preview-v2` | Three clean laps; zero collisions/resets; rolling laps 15.069 / 15.597 s; mean 15.333 s; peak 2.4859 m/s | First screen passed; mean rolling lap time 28.8% lower than `231003`; preserve this profile and assess detailed corner behavior before increasing speed |
 | `20260917-075757-575-preview-v2-3p0`, 3.0 m/s, cap 0.2 | One completed lap, one collision, zero resets; first driving lap 16.056 s; no complete rolling lap; peak 2.976 m/s | Failed screen; actuator output stopped for at least 1.82 s across a backward clock adjustment; repair timing before repeating unchanged settings |
 | `20260917-100851-863-preview-v2-3p0`, steady-clock actuator | Three clean laps; zero collisions/resets; rolling laps 15.375 / 15.693 s; mean 15.534 s; peak 2.9753 m/s | Passed 3.0 m/s screen; command age stayed below 56 ms across a 2.348 s clock rollback; mean lap time remains 1.3% above the 2.5 m/s baseline |
+| `20260917-113015-651-3-laps`, 3.0 m/s, cap 0.2 | Three clean laps; zero collisions/resets; rolling laps 14.289 / 14.282 s; mean 14.286 s; peak 2.9644 m/s | Baseline for the following 3.5 m/s comparison |
+| `20260917-113630-368-3-laps`, 3.5 m/s, cap 0.2 | Three clean laps; zero collisions/resets; rolling laps 14.346 / 14.370 s; mean 14.358 s; peak 3.3740 m/s | Passed initial screen; approximately 0.19 s/lap gained on the right middle section offset by 0.25 s/lap lost in the bottom bend; one run does not establish a ranking |
+| `20260917-114736-267-3-laps`, 4.0 m/s, cap 0.2 | Three clean laps; zero collisions/resets; rolling laps 14.577 / 14.054 s; mean 14.316 s; peak 3.6825 m/s | Passed initial screen; repeat to assess the 0.523 s spread between rolling laps |
+| `20260917-114924-098-3-laps`, 4.5 m/s, cap 0.2 | Three clean laps; zero collisions/resets; rolling laps 14.561 / 14.406 s; mean 14.483 s; peak 3.7565 m/s | Passed initial screen; retain alongside the faster repeat rather than judging the setting from its best run alone |
+| `20260917-120411-594-3-laps`, 4.5 m/s, cap 0.2 | Three clean laps; zero collisions/resets; rolling laps 14.168 / 14.176 s; mean 14.172 s; peak 3.7282 m/s | Fastest observed clean-run mean; use saved settings as the next comparison baseline; standing-start command delays remain recorded |
+| `20260917-120619-901-3-laps`, 5.0 m/s, cap 0.2 | Three clean laps; zero collisions/resets; rolling laps 14.538 / 14.240 s; mean 14.389 s; peak 3.7538 m/s | Passed initial screen, but did not reach actual 5 m/s; investigate controller/sensor delays before further speed increases |
 
-The current candidate is `preview-v2-3p0`, prepared on September 17 at the user's
-request after the 2.5 m/s screening pass. Only the shared speed ceiling increases
-to 3.0 m/s; throttle remains 0.2 and controller settings are unchanged. Its first
-screen failed during the timing interruption described below; the repeat passed
-after correcting the actuator timer. The 2.5 m/s configuration in the `233141`
-recording remains the fastest passing profile by measured rolling mean.
+As of this update, the working `config/driving.yaml` requests 5.0 m/s with a 0.2
+throttle cap. The fastest observed clean-run mean is the saved 4.5 m/s profile in
+`120411`, not the highest configured ceiling. The six recent runs above use Git
+revision `9d042e6`; their saved AVLite and actuator profiles are identical, with
+only the shared speed ceiling varied. The 2.5 and 3.0 m/s profiles remain historical
+baselines; the earlier 3.0 m/s actuator-clock repair is documented below.
 
 The candidate requests at least 1.5 m of gap preview, with the existing shorter
 fallback, while retaining steering lookahead gain 0.4 s bounded to 0.6–1.8 m; initial lateral
@@ -189,7 +248,39 @@ checked along straight heading/target corridors; this is not a full curved
 footprint check or mapped corner preview. See the
 [candidate guide](avlite-setup.md#corner-entry-screening-candidate).
 
-### Latest turn-in evidence and next experiment
+### September 17 speed comparisons and timing follow-up
+
+The 3.0-to-3.5 comparison raised peak speed by 0.410 m/s without improving rolling
+lap time (14.286 to 14.358 s). The bottom-bend minimum sampled rolling speed fell
+from 1.370 to 0.942 m/s. The small 0.073 s lap-mean difference is insufficient to
+establish a reliable ranking from one run at each setting.
+
+The latest 4.5-to-5.0 comparison raised peak speed by only 0.026 m/s. The speed
+target was below the configured ceiling for approximately 92% and 96% of rolling
+time respectively; clearance limits prompted deceleration before the bottom bend.
+The 5.0 run's top-bend minimum rolling speed was 0.870 m/s versus 1.332 m/s at 4.5.
+These are measured observations, not a calibrated explanation of cornering response.
+
+At recording time 27.40 s in `120619`, near world (0.02, -6.52) m in the bottom
+bend, a controller step took 368 ms and the actuator's last-command age reached
+364 ms. The actuator's own interval was about 50 ms at that sample. Later,
+odometry age reached 264 ms and controller-reported LiDAR age reached 218 ms.
+The cause is unresolved. No large wall-clock step was observed in this pair,
+so the recording does not establish recurrence of the earlier clock-sensitive
+actuator timer failure. All sampled input ages remained below 0.5 s, but that
+does not establish consistently prompt delivery for higher-speed driving.
+
+The 4.5 run also recorded command delays up to 252 ms during its standing-start
+lap; its two rolling laps had controller work below 25 ms and command age below
+94 ms. The 5.0 rolling laps differed by 298 ms versus 8 ms in the latest 4.5 run.
+Two rolling intervals per run are insufficient to complete repeatability acceptance.
+
+Detailed comparisons and graphs are available locally under
+`log/comparisons/20260917-3p0-vs-3p5/` and
+`log/comparisons/20260917-4p5-vs-5p0/` (ignored by Git). The screening results and
+limitations are retained in this checklist so progress is visible without those files.
+
+### Earlier corner-preview evidence (2.5 m/s)
 
 The `231003` recording now includes the observed LiDAR outline: 626 scans,
 10,127 deduplicated points, and a maximum accepted scan/pose stamp difference
@@ -231,20 +322,15 @@ straight driving, blocked paths, shorter fallback and reset handling; Python
 lint and whitespace checks also passed. These checks do not establish live
 lap performance or clearance through a moving turn.
 
-The actuator timer correction passed the checks below. Repeat the three-lap
-screen at the same 3.0 m/s with:
-
-```powershell
-.\record-one-lap.ps1 -Laps 3 -Label preview-v2-3p0-steady
-```
-
-Reset when prompted and keep the complete recording folder, including
+The actuator timer correction passed the checks below, and the unchanged 3.0 m/s
+retest subsequently passed. Later configured-speed screens are recorded above.
+For future repeats, reset when prompted and keep the complete recording folder, including
 `telemetry.lap.png` and `telemetry.control.png`. The earlier `233141` run passed
 the 2.5 m/s screen despite reusing the old `corner-v1` folder label: its saved configuration
 and live diagnostics show the 1.5 m preview was active. Curated graphs and
 summaries are linked in the [README comparison](../README.md#tests-and-improvements).
-Detailed steering-onset, saturation and clearance comparison, higher-speed
-screening and three fresh ten-lap acceptance runs remain pending.
+Detailed steering-onset and clearance validation, braking calibration, resolution
+of the later controller/sensor delays, and three fresh ten-lap acceptance runs remain pending.
 
 ### 3.0 m/s test: actuator update interruption
 

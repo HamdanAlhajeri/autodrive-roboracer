@@ -59,6 +59,8 @@ services:
     ipc: host
     environment:
       ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      OPENBLAS_NUM_THREADS: 1
+      OMP_NUM_THREADS: 1
     volumes:
       - ./config:/config:ro
       - ./src/avlite_autodrive:/opt/integration:ro

@@ -8,6 +8,8 @@ install/
 log/
 *.log
 *.pid
+config/maps/*.png
+config/maps/*.plan.json
 
 # Python bytecode, packaging output and virtual environments
 __pycache__/
