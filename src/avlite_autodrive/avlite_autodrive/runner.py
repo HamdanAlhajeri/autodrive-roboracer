@@ -20,8 +20,14 @@ from .race_planning import prepare_plan
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="/config/avlite.yaml")
+    parser.add_argument("--response-speed", type=float,
+                        help="Run bounded straight coast attempts at 1.0-2.5 m/s")
+    parser.add_argument("--response-trials", type=int, default=3)
     args = parser.parse_args()
     config = load_config(args.config)
+    if args.response_speed is not None:
+        from .response_test import measurement_config
+        config = measurement_config(config, args.response_speed)
     # Apply the explicit small-car profile BEFORE constructing the controller.
     for key, value in config["c30_control"].items():
         if not hasattr(ControlSettings, key):
@@ -44,6 +50,15 @@ def main():
     local_planner = None
     controller = (AutoDRIVEPlannedController(prepared) if prepared else
                   AutoDRIVEFollowTheGap(racing=config.get("racing")))
+    if args.response_speed is not None:
+        from .plugin.response_controller import ResponseController
+        controller = ResponseController(prepared, args.response_speed, args.response_trials)
+        prepared.artifact["response_test"] = controller.experiment.metadata()
+    if prepared:
+        logging.info("Effective planned ceiling=%.3f m/s; braking_calibrated=%s; "
+                     "path profile=%.3f..%.3f m/s",
+                     prepared.settings.speed_limit, prepared.settings.braking_calibrated,
+                     min(prepared.global_plan.velocity), max(prepared.global_plan.velocity))
     world = AutoDRIVEWorldBridge()
     if prepared:
         world.map = prepared.planner.map
@@ -86,6 +101,9 @@ def main():
                 )
             was_ready = ready
             if ready:
+                if (args.response_speed is not None
+                        and world.node.count_publishers("/avlite/control_command") > 1):
+                    raise RuntimeError("Competing control publisher; response test aborted")
                 stack.step(
                     control_dt=0.05,
                     sim_dt=0.05,
