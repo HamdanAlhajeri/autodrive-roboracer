@@ -20,10 +20,16 @@ param(
     [ValidateRange(1, 300)][int]$WaitForOdomSeconds = 30,
     [switch]$NoOpen,
     [ValidateRange(1, 10000)][int]$Laps = 1,
-    [switch]$NoTrackMap
+    [switch]$NoTrackMap,
+    [string]$OutputDirectory,
+    [ValidateRange(0, 2.5)][double]$ResponseSpeedMps = 0,
+    [ValidateRange(3, 20)][int]$ResponseTrials = 3
 )
 
 $ErrorActionPreference = 'Stop'
+if ($ResponseSpeedMps -gt 0 -and $ResponseSpeedMps -lt 1) {
+    throw 'Response measurements require 1.0 to 2.5 m/s.'
+}
 if ($Laps -gt 1 -and -not $PSBoundParameters.ContainsKey('Label')) {
     $Label = "$Laps-laps"
 }
@@ -33,6 +39,15 @@ $compose = @('compose', '-f', "$PSScriptRoot\docker-compose.avlite.yml",
 function Invoke-LapCompose {
     & docker @compose @args
     if ($LASTEXITCODE -ne 0) { throw "Docker Compose failed: $args" }
+}
+
+function Stop-LapController {
+    if ($ResponseSpeedMps -gt 0) {
+        & docker stop --time 5 $responseControllerName | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Could not stop the response-test controller.' }
+    } else {
+        Invoke-LapCompose stop avlite
+    }
 }
 
 function Get-ReadySample([string]$Path) {
@@ -66,14 +81,18 @@ if (-not $bridge -or -not $actuator -or -not $avlite) {
 }
 
 $runName = (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '-' + $Label
-$recordDir = Join-Path $PSScriptRoot "log\recordings\$runName"
+$recordDir = if ($OutputDirectory) { [System.IO.Path]::GetFullPath($OutputDirectory) }
+             else { Join-Path $PSScriptRoot "log\recordings\$runName" }
+if (Test-Path -LiteralPath $recordDir) { throw "Recording directory already exists: $recordDir" }
 $recorderName = 'autodrive-lap-' + [Guid]::NewGuid().ToString('N')
+$responseControllerName = 'autodrive-response-' + [Guid]::NewGuid().ToString('N')
 $recording = Join-Path $recordDir 'telemetry.jsonl'
 $summaryPath = Join-Path $recordDir 'telemetry.summary.json'
 $graph = Join-Path $recordDir 'telemetry.lap.png'
 $job = $null
 $controllerStopped = $false
 $drivingStarted = $false
+$controllerHealthTimer = [Diagnostics.Stopwatch]::StartNew()
 
 try {
     Invoke-LapCompose stop avlite
@@ -105,7 +124,7 @@ try {
         Receive-Job -Job $job -ErrorAction Stop
         if (Test-Path -LiteralPath $summaryPath) {
             if (-not $controllerStopped) {
-                Invoke-LapCompose stop avlite
+                Stop-LapController
                 $controllerStopped = $true
                 Write-Host 'Capture ended; AVLite stopped. Finishing the graphs...'
             }
@@ -124,11 +143,26 @@ try {
                 }
                 # Treat even a partially successful start as requiring cleanup.
                 $controllerStopped = $false
-                Invoke-LapCompose start avlite
+                if ($ResponseSpeedMps -gt 0) {
+                    $speed = $ResponseSpeedMps.ToString([Globalization.CultureInfo]::InvariantCulture)
+                    $command = "source /opt/ros/humble/setup.bash && exec python -m avlite_autodrive.runner --config /config/avlite.yaml --response-speed $speed --response-trials $ResponseTrials"
+                    Invoke-LapCompose run --detach --no-deps --name $responseControllerName `
+                        --entrypoint /bin/bash avlite -lc $command | Out-Null
+                } else {
+                    Invoke-LapCompose start avlite
+                }
                 $drivingStarted = $true
                 Write-Host "Recording is ready. AVLite is driving; capture ends after $Laps laps or an incident."
             } elseif ([DateTime]::UtcNow -gt $readyDeadline) {
                 throw 'No fresh stationary odometry and lap counters arrived. Check the simulator connection.'
+            }
+        }
+        if ($drivingStarted -and -not $controllerStopped -and $ResponseSpeedMps -gt 0 -and
+            $controllerHealthTimer.Elapsed.TotalSeconds -ge 1) {
+            $controllerHealthTimer.Restart()
+            $running = & docker inspect --format '{{.State.Running}}' $responseControllerName
+            if ($LASTEXITCODE -ne 0 -or $running -ne 'true') {
+                throw "Response controller exited early. See response-controller.log in $recordDir"
             }
         }
         if ([DateTime]::UtcNow -gt $finishDeadline) {
@@ -145,7 +179,7 @@ try {
     }
 } finally {
     if (-not $controllerStopped) {
-        try { Invoke-LapCompose stop avlite }
+        try { Stop-LapController }
         catch { Write-Warning "Could not stop AVLite: $_" }
     }
     if ($job) {
@@ -159,6 +193,19 @@ try {
         try { & docker rm --force $recorderName 2>$null | Out-Null }
         catch { Write-Verbose "Recorder container already removed: $_" }
         Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+    }
+    if ($ResponseSpeedMps -gt 0) {
+        if (Test-Path -LiteralPath $recordDir) {
+            $savedPreference = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'Continue'
+                & docker logs $responseControllerName 2>&1 |
+                    Out-File -LiteralPath (Join-Path $recordDir 'response-controller.log') -Encoding UTF8
+            } finally { $ErrorActionPreference = $savedPreference }
+        }
+        # Remove only this invocation's uniquely named one-off controller.
+        try { & docker rm --force $responseControllerName 2>$null | Out-Null }
+        catch { Write-Verbose "Response controller already removed: $_" }
     }
 }
 

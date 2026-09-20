@@ -4,6 +4,73 @@ Autonomous racing in the AutoDRIVE practice simulator using AVLite plugins.
 Choose reactive Follow the Gap or a mapped race planner with Pure Pursuit.
 Both currently use simulator ground-truth localization.
 
+## Project architecture
+
+### Current simulator system
+
+On Windows, Unity runs natively. Docker runs three services: the AutoDRIVE ROS
+bridge, AVLite with our plugins, and an independent actuator adapter.
+
+```mermaid
+flowchart LR
+    Sim["AutoDRIVE simulator on Windows"]
+    subgraph Docker["Docker: ROS 2 Humble"]
+        Bridge["AutoDRIVE ROS bridge"]
+        AVLite["AVLite + avlite_autodrive plugins"]
+        Actuator["Actuator adapter"]
+        Bridge -->|LiDAR and ground-truth odometry| AVLite
+        AVLite -->|Steering angle and acceleration| Actuator
+        Actuator -->|Normalized throttle and steering| Bridge
+        Bridge -->|Sensor feedback| Actuator
+    end
+    Sim <-->|Socket.IO| Bridge
+    Map["Practice-track map: planned mode"] --> AVLite
+    Bridge -.->|Sensors and lap counters| Telemetry["Recording and plots"]
+    AVLite -.->|Controller diagnostics| Telemetry
+    Actuator -.->|Actuator diagnostics| Telemetry
+```
+
+[runner.py](src/avlite_autodrive/avlite_autodrive/runner.py) selects Follow the Gap
+or the mapped planner with Pure Pursuit. The
+[world bridge](src/avlite_autodrive/avlite_autodrive/plugin/bridge.py) translates
+ROS sensor messages into AVLite inputs and publishes controller commands.
+Both the controller and [actuator](src/avlite_autodrive/avlite_autodrive/adapter.py)
+target 20 Hz; the actuator uses its own timer and timeout checks.
+
+The internal `/avlite/control_command` message carries steering in radians and
+acceleration in m/s²; its `speed` field is unused. The actuator converts those
+commands into simulator inputs. Reducing throttle to zero is the current
+deceleration action, not a calibrated physical brake command.
+
+The [recording script](record-one-lap.ps1) manages test capture and produces path,
+speed and control plots. Its LiDAR track outline uses simulator ground-truth
+poses; it is not an implemented mapping/localization system for the real car.
+
+### Planned real-car system
+
+Add an installable **`avlite_roboracer`** plugin package alongside
+`avlite_autodrive`, reusing the driving algorithms with hardware-specific inputs
+and outputs. **This hardware package is not implemented yet.**
+
+| Component to add | Responsibility on the Jetson |
+| --- | --- |
+| Hardware bridge | Read LiDAR, wheel odometry and IMU drivers; configure topics, units, coordinate frames and sensor mounts; validate source timestamps |
+| Mapping and localization | Save the physical track map; wrap AVLite ICP with odometry/IMU prediction and pose-quality checks; replace the simulator localization bypass |
+| Hardware actuator | Translate commands into the motor/steering driver's interface; calibrate steering and braking; provide command expiry independent of the driving process and retain manual stopping |
+| Vehicle profile | Store measured wheelbase, steering limits, sensor positions and acceleration/braking limits separately from simulator settings |
+| Launcher, supervisor and recorder | Provide record/map/localize/drive modes, remote start/stop/status and hardware telemetry; expire drive authorization locally on lost contact |
+
+The sensor-to-motor loop runs locally on the Jetson; the laptop supervises it.
+Choose native installation or a compatible ARM container after identifying the
+Jetson's OS, JetPack and ROS versions. The desktop simulator image is not the
+hardware deployment image.
+
+Reactive Follow the Gap does not inherently require a global map. The current
+mapped planner requires a track map and a reliable estimated pose, so hardware
+mapping and localization must be validated before planned driving. See the
+[real-car implementation plan](docs/real-car-plugin-plan.md) for module names,
+the hardware inspection command and commissioning steps.
+
 ## Start and record on Windows
 
 With Docker Desktop running Linux containers, run from this repository:

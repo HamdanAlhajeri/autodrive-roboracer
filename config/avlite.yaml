@@ -1,6 +1,6 @@
 # AVLite settings use metres, seconds, radians, and m/s (not normalized throttle).
 shared_settings: driving.yaml
-driving_mode: follow_the_gap  # Switch to planned only after preparing the map below.
+driving_mode: planned  # Switch to planned only after preparing the map below.
 planning:
   map_path: maps/practice.json  # Relative to this YAML; available under /config in Docker.
   max_velocity_mps: ${speed_mps}

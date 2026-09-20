@@ -32,7 +32,9 @@ def analyze_response(rows):
                                      "start_speed_mps": float(v[0]),
                                      "end_speed_mps": float(v[-1]),
                                      "deceleration_mps2": float(-slope),
-                                     "fit_rms_mps": residual})
+                                     "fit_rms_mps": residual,
+                                     "distance_m": float(np.sum(np.diff(t) * (v[:-1] + v[1:]) / 2)),
+                                     "response_trial": current[0].get("response_trial")})
         current.clear()
 
     def number(row, name):
@@ -46,16 +48,28 @@ def analyze_response(rows):
                  and 0 <= number(row, "throttle_command") <= 0.005
                  and 0 <= number(row, "throttle") <= 0.005
                  and abs(number(row, "steering")) <= 0.05)
+        if row.get("response_phase") is not None:
+            coast = (coast and row["response_phase"] == 1 and number(row, "response_trial") > 0
+                     and 0 <= number(row, "controller_diagnostics_age_s") <= 0.15)
         if current:
             dt = number(row, "elapsed_s") - current[-1]["elapsed_s"]
             if (not 0 < dt <= 0.2 or row.get("resets") != current[-1].get("resets")
-                    or row.get("collision_count") != current[-1].get("collision_count")):
+                    or row.get("collision_count") != current[-1].get("collision_count")
+                    or row.get("response_trial") != current[-1].get("response_trial")):
                 finish()
         if coast:
             current.append(row)
         else:
             finish()
     finish()
+    # A sensor interruption must not turn one physical coast into two independent trials.
+    selected = {}
+    for episode in episodes:
+        trial = episode["response_trial"]
+        if trial is not None and (trial not in selected
+                                  or episode["duration_s"] > selected[trial]["duration_s"]):
+            selected[trial] = episode
+    episodes = [e for e in episodes if e["response_trial"] is None] + list(selected.values())
     enough = len(episodes) >= 3
     conservative = 0.8 * min(e["deceleration_mps2"] for e in episodes) if enough else None
     return {

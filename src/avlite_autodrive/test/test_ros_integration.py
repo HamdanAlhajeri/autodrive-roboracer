@@ -9,6 +9,7 @@ import sys
 import time
 
 import pytest
+import yaml
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("RUN_ROS_TESTS") != "1", reason="requires isolated ROS_DOMAIN_ID and ROS runtime"
@@ -65,6 +66,12 @@ def test_stack_moves_and_watchdog_stops_after_avlite_is_killed(tmp_path):
     # A non-default throttle cap proves the adapter consumed the shared settings.
     for profile in ("avlite.yaml", "actuator.yaml"):
         shutil.copyfile("/config/" + profile, tmp_path / profile)
+    # This fixture is a straight reactive corridor, independent of the user's
+    # selected live mode. Planned mode is covered by its own mapped fixture.
+    avlite_profile = tmp_path / "avlite.yaml"
+    configuration = yaml.safe_load(avlite_profile.read_text())
+    configuration["driving_mode"] = "follow_the_gap"
+    avlite_profile.write_text(yaml.safe_dump(configuration))
     (tmp_path / "driving.yaml").write_text("speed_mps: 0.7\nmax_throttle: 0.031\n")
     adapter = subprocess.Popen(
         ["/usr/bin/python3", "-m", "avlite_autodrive.adapter",
