@@ -90,7 +90,7 @@ at 0.604 m.
 **Change:** separate preferred gap preview from steering distance:
 
 $$
-L_{\mathrm{steer}}=\operatorname{clip}(0.4v,\ 0.6,\ 1.8),\qquad
+L_{\mathrm{steer}}=\mathrm{clip}(0.4v,\ 0.6,\ 1.8),\qquad
 L_{\mathrm{preview}}=\min(1.8,\ \max(L_{\mathrm{steer}},1.5)).
 $$
 

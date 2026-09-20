@@ -102,11 +102,11 @@ driving; unusually open scenes may fail that check.
 For Follow the Gap, steering lookahead and preferred gap-search preview are:
 
 $$
-L=\operatorname{clip}(k_vv,L_{\min},L_{\max}),\qquad
+L=\mathrm{clip}(k_vv,L_{\min},L_{\max}),\qquad
 L_p=\min(L_{\max},\max(L,L_{\mathrm{gap}})).
 $$
 
-Here $\operatorname{clip}(z,l,h)=\min(h,\max(l,z))$ keeps a value within its bounds.
+Here $\mathrm{clip}(z,l,h)=\min(h,\max(l,z))$ keeps a value within its bounds.
 Current parameters are $k_v=0.4$ s, $L_{\min}=0.6$ m, $L_{\max}=1.8$ m and
 $L_{\mathrm{gap}}=1.5$ m. If no opening fits, the search tries shorter distances;
 the pursuit distance shrinks when needed. Removing `racing.gap_preview_min_m`
@@ -117,7 +117,7 @@ For a selected pursuit target $(g_x,g_y)$ in the vehicle frame, Pure Pursuit use
 $$
 \kappa=\frac{2g_y}{g_x^2+g_y^2},\qquad
 \delta=\arctan(\ell\kappa),\qquad
-u_\delta=\operatorname{clip}\left(\frac{\delta}{\pi/6},-1,1\right).
+u_\delta=\mathrm{clip}\left(\frac{\delta}{\pi/6},-1,1\right).
 $$
 
 $\kappa$ is curvature in m⁻¹, $\delta$ is wheel angle in radians and $u_\delta$
@@ -147,11 +147,11 @@ references.
 During ordinary acceleration, speed demand $v_d$ and normalized throttle $u$ follow:
 
 $$
-v_d[k+1]=\operatorname{clip}(v_d[k]+a_{\mathrm{cmd}}\Delta t,0,v_{\max}),
+v_d[k+1]=\mathrm{clip}(v_d[k]+a_{\mathrm{cmd}}\Delta t,0,v_{\max}),
 $$
 
 $$
-u=\operatorname{clip}(k_{\mathrm{ff}}v_d+k_pe+k_iI_c,0,u_{\max}),\qquad e=v_d-v.
+u=\mathrm{clip}(k_{\mathrm{ff}}v_d+k_pe+k_iI_c,0,u_{\max}),\qquad e=v_d-v.
 $$
 
 $I_c$ is the bounded candidate integral of speed error; it is retained only when
