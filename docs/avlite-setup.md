@@ -294,6 +294,16 @@ PYTHONPATH=src/my_team_racer python3 -m pytest -q src/my_team_racer/test/test_ra
 The ROS tests exercise the actual executor/adapter with synthetic inputs and
 verify zero output after controller loss. They do not establish lap performance.
 
+Windows response workflow cleanup can be checked without Docker or the simulator:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/test-response-workflow.ps1
+```
+
+The test mocks Docker and covers normal completion, partial controller startup,
+recorder failure and controller exit. See [response measurements](response-measurements.md)
+for source-rate capture, qualification and the live test command.
+
 ## Original controller
 
 The legacy [racer_node.py](../src/my_team_racer/my_team_racer/racer_node.py) estimates

@@ -1,6 +1,6 @@
 # Execution checklist
 
-Updated 20 September 2026, including the 19 September response test.
+Updated 21 September 2026, including response capture and timing protections.
 Acceptance is defined in the [milestone plan](plan-2026-09-21.md);
 the [real-car plan](real-car-plugin-plan.md) extends the work to Jetson testing.
 
@@ -10,14 +10,17 @@ measured 5 m/s, final repeatability and estimated localization remain open.
 
 ## Next actions
 
-1. Improve response capture and short-interval qualification: the first test
-   recorded three brief coast attempts but zero accepted fits.
-2. Collect the missing Jetson facts with `bash tools/inspect-jetson.sh` and
-   establish a reachable laptop connection.
-3. Re-test response after the measurement changes, then review conservative
-   acceleration/braking limits. Keep `braking_calibrated: false` until evidence qualifies.
-4. Before enabling calibration, replace the shared 20 m/s ceiling with 3.0 m/s.
-   Screen higher speeds in 0.5 m/s steps, then repeat the best unchanged profile.
+**Latest speed fix:** the normal controller now uses a prepared 3.0 m/s planned
+profile, 1.5 m/s² acceleration and conservative 2.0 m/s² braking based on the clean
+2.0 m/s response run. Its live three-lap screen is pending. The attempted 2.5 m/s
+response run failed on telemetry and a repeat could not confirm reset.
+See [evidence and next command](validation/speed-fix-20260921.md).
+
+1. Restore consistent simulator feedback and complete the pending 2.5 m/s response stage.
+2. Screen the prepared 3.0 m/s profile with three clean laps and review timing/tracking.
+3. Screen higher speeds in 0.5 m/s steps, then repeat the best unchanged profile.
+
+Mapping, localization and hardware implementation are deferred from today's work.
 
 ## A. Simulator driving
 
@@ -41,11 +44,15 @@ measured 5 m/s, final repeatability and estimated localization remain open.
   validation, curved-path obstacle checks, resets and runtime plan recording.
 - [x] Planned-mode three-lap screening at an effective 2.5 m/s ceiling.
 - [x] Guided response test and analysis reports; first live test completed.
+- [x] Restore the guided-test implementation missing from this checkout, with
+  source-rate odometry capture, short-interval fit uncertainty and timing graphs.
+- [x] Temporary low-speed response profile, one coast per circuit, interruption
+  abort and controller cleanup on success, partial startup and runtime failure.
 - [x] Automated controller, actuator, planner, recorder and ROS integration coverage.
 
-The response implementation passed 270 AVLite/ROS tests, followed by 29 targeted
-checks after the incomplete-summary guard, plus six PowerShell workflow scenarios.
-These are development checks, not physical response measurements.
+The September 19 live result is historical: its raw folder is absent here.
+Today's verification is recorded in [response measurements](response-measurements.md).
+Automated checks do not establish physical response or lap performance.
 
 ### Still required
 
@@ -91,7 +98,8 @@ available. Neither fulfills these occupancy-grid/localization checks.
 
 ## C. Real-car preparation
 
-- [x] Document plugin architecture and provide the read-only Jetson inspection script.
+- [x] Document plugin architecture.
+- [ ] Provide the documented Jetson inspection script (absent in this checkout; deferred).
 - [ ] Identify Jetson/JetPack/ROS versions, sensors, actuator interface, frames and stop controls.
 - [ ] Establish laptop connectivity and implement recording/replay plus hardware profiles.
 - [ ] Implement the mapping/localization modules and evaluate on separate manual recordings.
@@ -157,8 +165,9 @@ See [response findings](response-measurements.md#latest-result) for the latest r
 
 - [x] Replace the actuator's ROS/system-clock timer with steady-clock scheduling.
 - [x] Verify continued updates under paused/backward clocks and a live 3.0 m/s repeat.
-- [ ] Add independent command-age expiry at the simulator bridge.
-- [ ] Include stale actuator publication in recorder health/screening decisions.
+- [x] Add independent monotonic command-age expiry at the simulator bridge's final output.
+- [x] Include stale/missing/invalid actuator publication in recorder health/screening decisions.
+- [x] Add source-rate odometry timing diagnostics for response investigations.
 - [ ] Investigate controller and sensor delivery delays without relaxing timeouts.
 
 The failed `075757` run had a 2.114 s backward UTC adjustment; at collision the

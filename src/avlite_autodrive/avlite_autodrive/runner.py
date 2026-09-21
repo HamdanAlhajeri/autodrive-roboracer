@@ -15,13 +15,26 @@ from .plugin import AutoDRIVEFollowTheGap, AutoDRIVEWorldBridge
 from .plugin.planned_controller import AutoDRIVEPlannedController
 from .configuration import load_config
 from .race_planning import prepare_plan
+from .response_test import ResponseExperiment
+from .plugin.response_controller import AutoDRIVEResponseController
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="/config/avlite.yaml")
+    parser.add_argument("--response-speed-mps", type=float)
+    parser.add_argument("--response-trials", type=int, default=3)
     args = parser.parse_args()
     config = load_config(args.config)
+    if args.response_speed_mps is not None:
+        ResponseExperiment(args.response_speed_mps, args.response_trials)  # validate before ROS
+        config["driving_mode"] = "planned"
+        config["c30_control"]["c35_cruise_velocity"] = args.response_speed_mps
+        config["c30_control"]["c32_ego_max_velocity"] = args.response_speed_mps
+        config["planning"]["max_velocity_mps"] = args.response_speed_mps
+        config["planning"]["braking_calibrated"] = False
+        config["response_test"] = {"speed_mps": args.response_speed_mps,
+                                   "trials": args.response_trials}
     # Apply the explicit small-car profile BEFORE constructing the controller.
     for key, value in config["c30_control"].items():
         if not hasattr(ControlSettings, key):
@@ -40,10 +53,21 @@ def main():
         raise ValueError("driving_mode must be follow_the_gap or planned")
     # Preparation happens before the ROS bridge can send any command.
     prepared = prepare_plan(config, args.config) if mode == "planned" else None
+    if prepared:
+        logging.info(
+            "Planned speed ceiling %.3f m/s (requested %.3f; braking calibrated=%s); "
+            "acceleration %.3f m/s^2, braking %.3f m/s^2",
+            prepared.settings.speed_limit, prepared.settings.max_velocity_mps,
+            prepared.settings.braking_calibrated, prepared.settings.acceleration_mps2,
+            prepared.settings.braking_deceleration_mps2,
+        )
     pm = PerceptionModel(ego_vehicle=EgoState(x=0, y=0))
     local_planner = None
     controller = (AutoDRIVEPlannedController(prepared) if prepared else
                   AutoDRIVEFollowTheGap(racing=config.get("racing")))
+    if args.response_speed_mps is not None:
+        controller = AutoDRIVEResponseController(
+            prepared, args.response_speed_mps, args.response_trials)
     world = AutoDRIVEWorldBridge()
     if prepared:
         world.map = prepared.planner.map

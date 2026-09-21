@@ -131,22 +131,25 @@ def test_lost_odometry_fails_early_and_preserves_partial_data(recorder, odometry
 def screening_telemetry():
     import rclpy
     from nav_msgs.msg import Odometry
-    from std_msgs.msg import Int32
+    from std_msgs.msg import Int32, Float32
     from avlite_autodrive.ros_utils import PREFIX
 
     rclpy.init()
     node = rclpy.create_node("screening_test_publisher")
     messages = {"odom": Odometry(), "lap_count": Int32(), "collision_count": Int32()}
+    messages.update(throttle_command=Float32(), steering_command=Float32())
     messages["odom"].pose.pose.orientation.w = 1.0
     publishers = {
         name: node.create_publisher(type(message), PREFIX + "/" + name, 10)
         for name, message in messages.items()
     }
 
-    def pump(seconds, odom=True, lap_count=True, collision_count=True):
-        enabled = {"odom": odom, "lap_count": lap_count, "collision_count": collision_count}
+    def pump(seconds, odom=True, lap_count=True, collision_count=True, actuator=True):
+        enabled = {"odom": odom, "lap_count": lap_count, "collision_count": collision_count,
+                   "throttle_command": actuator, "steering_command": actuator}
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
+            messages["odom"].header.stamp = node.get_clock().now().to_msg()
             for name, publisher in publishers.items():
                 if enabled[name]:
                     publisher.publish(messages[name])
@@ -289,4 +292,31 @@ def test_motion_before_counter_discovery_cannot_pass(recorder, screening_telemet
     assert summary["completed_laps"] == 1
     assert summary["counter_telemetry_status"] == "fresh"
     assert not summary["counter_baseline_before_motion"]
+    assert not summary["clean_run"]
+
+
+def test_response_captures_each_odometry_update_not_held_10hz_values(recorder, odometry):
+    _, pump = odometry
+    process, output = recorder("--response-data")
+    pump_until_exit(process, pump)
+    response_lines = output.with_suffix(".response.jsonl").read_text().splitlines()
+    rows = [json.loads(line) for line in response_lines]
+    normal = output.read_text().splitlines()
+    assert len(rows) > 2 * len(normal)
+    assert len({r["odom_stamp_ns"] for r in rows}) == len(rows)
+    assert all(r["capture_mode"] == "odometry" for r in rows)
+    assert [r["sample_sequence"] for r in rows] == list(range(1, len(rows) + 1))
+    summary = json.loads(output.with_suffix(".summary.json").read_text())
+    assert summary["response_capture"]["samples"] == len(rows)
+
+
+def test_frozen_actuator_publication_disqualifies_clean_lap(recorder, screening_telemetry):
+    messages, pump = screening_telemetry
+    process, output = recorder("--seconds", "10", "--laps", "1")
+    wait_for_counter_baseline(output, process, pump)
+    messages["lap_count"].data = 1
+    pump_until_exit(process, pump, actuator=False)
+    summary = json.loads(output.with_suffix(".summary.json").read_text())
+    assert process.returncode == 2
+    assert "Actuator publication expired" in summary["error"]
     assert not summary["clean_run"]

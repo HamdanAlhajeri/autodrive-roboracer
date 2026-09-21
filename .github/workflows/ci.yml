@@ -7,6 +7,14 @@ on:
     branches: ["main"]
 
 jobs:
+  windows-response-workflow:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Response-controller lifecycle and failure cleanup
+        shell: powershell
+        run: .\tests\test-response-workflow.ps1
+
   lint:
     runs-on: ubuntu-22.04
     steps:
@@ -41,7 +49,10 @@ jobs:
             src/avlite_autodrive/test/test_actuation.py \
             src/avlite_autodrive/test/test_sensors.py \
             src/avlite_autodrive/test/test_configuration.py \
-            src/avlite_autodrive/test/test_simulator_bridge.py
+            src/avlite_autodrive/test/test_simulator_bridge.py \
+            src/avlite_autodrive/test/test_telemetry_health.py \
+            src/avlite_autodrive/test/test_response_test.py \
+            src/avlite_autodrive/test/test_response_analysis.py
 
   avlite-ros:
     runs-on: ubuntu-22.04
