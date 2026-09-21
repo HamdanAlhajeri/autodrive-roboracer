@@ -7,7 +7,8 @@ param(
     [ValidatePattern('^[a-zA-Z0-9][a-zA-Z0-9_.-]+$')][string]$RecorderName,
     [ValidateRange(1, 10000)][int]$Laps = 1,
     [switch]$StopOnIncident,
-    [switch]$NoTrackMap
+    [switch]$NoTrackMap,
+    [switch]$ResponseData
 )
 
 $ErrorActionPreference = 'Stop'
@@ -56,6 +57,7 @@ $dirty = [bool](& git -C $PSScriptRoot status --porcelain)
     requested_laps = $lapTarget
     stop_on_incident = [bool]$StopOnIncident
     track_map = -not [bool]$NoTrackMap
+    response_data = [bool]$ResponseData
     wait_for_odometry_seconds = $WaitForOdomSeconds
     bridge_container_id = $bridge
     label = $Label
@@ -81,9 +83,10 @@ $recordExitCode = 0
 $lapOption = if ($null -ne $lapTarget) { " --laps $lapTarget" } else { '' }
 $incidentOption = if ($StopOnIncident) { ' --stop-on-incident' } else { '' }
 $trackOption = if ($NoTrackMap) { '' } else { ' --track-map' }
+$responseOption = if ($ResponseData) { ' --response-data' } else { '' }
 $containerOptions = if ($RecorderName) { @('--name', $RecorderName) } else { @() }
 try {
-    $recordCommand = "source /opt/ros/humble/setup.bash && python -m avlite_autodrive.record --seconds $Seconds --wait-for-odom $WaitForOdomSeconds$lapOption$incidentOption$trackOption --output /records/telemetry.jsonl && python -m avlite_autodrive.plot_recording /records/telemetry.jsonl --title $runName --lap-report"
+    $recordCommand = "source /opt/ros/humble/setup.bash && python -m avlite_autodrive.record --seconds $Seconds --wait-for-odom $WaitForOdomSeconds$lapOption$incidentOption$trackOption$responseOption --output /records/telemetry.jsonl && python -m avlite_autodrive.plot_recording /records/telemetry.jsonl --title $runName --lap-report"
     Invoke-RecorderDocker @compose run --rm --no-deps @containerOptions -v "${recordDir}:/records" `
         --entrypoint /bin/bash avlite -lc $recordCommand
     $recordExitCode = $recorderDockerExitCode

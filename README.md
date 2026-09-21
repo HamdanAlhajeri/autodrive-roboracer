@@ -54,18 +54,26 @@ recording script, which handles the reload. YAML edits need no image rebuild.
 Upstream AVLite is installed inside the container; see
 [source locations and architecture](docs/avlite-setup.md#what-runs-and-where-to-edit).
 
-As checked on 20 September 2026, the working profile selects `planned`, requests
-20 m/s and caps throttle at 0.2. Uncalibrated planned driving adds a **2.5 m/s
-commissioning ceiling**. These are demand limits; measured speed can differ.
-Before enabling calibrated braking, replace 20 m/s with the next controlled
-test ceiling. See [planned driving](docs/planned-driving.md).
+The current saved profile selects `planned`, requests **3.0 m/s** and caps throttle
+at **0.25**, with 1.5 m/s² acceleration and conservative 2.0 m/s² braking based on
+qualified low-speed response measurements. The 3.0 m/s live screen is pending;
+see the [speed-fix evidence](docs/validation/speed-fix-20260921.md). These are demand
+limits; measured speed can differ. Uncalibrated profiles still use the **2.5 m/s
+commissioning ceiling**. See [planned driving](docs/planned-driving.md).
 
 ## Current progress and next work
 
 The planner and telemetry tools work, and three-lap screens have passed.
-The first response test completed four clean laps but produced **zero qualifying
-coast measurements**: the slowdown was too brief for the current capture and
-duration criteria. Improve that measurement before lifting the commissioning cap.
+Source-rate response capture, displacement/time consistency checks and independent
+bridge command expiry are implemented. The latest 2.0 m/s response run passed four
+clean laps with three qualified fits. A prepared 3.0 m/s planned profile now uses
+that low-speed evidence conservatively; its live screen and the interrupted
+2.5 m/s response stage remain pending. To repeat the response stage:
+
+```powershell
+.\measure-response.ps1 -TargetSpeedMps 2.5 -Trials 3
+```
+
 Details are in [response measurements](docs/response-measurements.md).
 
 The [checklist](docs/checklist-2026-09-21.md) tracks braking calibration,
