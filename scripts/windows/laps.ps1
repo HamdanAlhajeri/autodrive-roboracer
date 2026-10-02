@@ -8,11 +8,11 @@ then stops AVLite when the requested laps finish, an incident occurs, or the
 time limit is reached. The simulator, bridge and actuator stay running.
 Observed LiDAR surfaces are captured for the path graph unless -NoTrackMap is set.
 .EXAMPLE
-.\record-one-lap.ps1
+.\avlite.ps1 laps
 .EXAMPLE
-.\record-one-lap.ps1 -MaxSeconds 300 -Label controller-test -NoOpen
+.\avlite.ps1 laps -MaxSeconds 300 -Label controller-test -NoOpen
 .EXAMPLE
-.\record-one-lap.ps1 -Laps 3 -Label screening-2p5
+.\avlite.ps1 laps -Laps 3 -Label screening-2p5
 #>
 param(
     [ValidateRange(1, 86400)][int]$MaxSeconds = 600,
@@ -27,20 +27,23 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'common.ps1')
 $responseMode = $PSBoundParameters.ContainsKey('ResponseSpeedMps')
 if ($responseMode) { $Laps = $ResponseTrials + 1 }
 if ($Laps -gt 1 -and -not $PSBoundParameters.ContainsKey('Label')) {
     $Label = "$Laps-laps"
 }
-$compose = @('compose', '-f', "$PSScriptRoot\docker-compose.avlite.yml",
-    '-f', "$PSScriptRoot\docker-compose.windows.yml")
-
-function Invoke-LapCompose {
-    & docker @compose @args
-    if ($LASTEXITCODE -ne 0) { throw "Docker Compose failed: $args" }
-}
 
 function Get-ReadySample([string]$Path) {
+    <#
+    .SYNOPSIS
+    Return the latest telemetry sample only when the car is ready to start.
+    .DESCRIPTION
+    Path points to the JSONL file the recorder is still writing. Missing data,
+    partial lines, stale sensors or a moving car return null so the caller keeps
+    waiting. Readiness requires fresh odometry, counters and actuator commands,
+    with measured speed at most 0.1 m/s in either direction.
+    #>
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
     $line = Get-Content -LiteralPath $Path -Tail 1
     if (-not $line) { return $null }
@@ -65,15 +68,15 @@ function Get-ReadySample([string]$Path) {
     return $sample
 }
 
-$bridge = Invoke-LapCompose ps -q --status running bridge
-$actuator = Invoke-LapCompose ps -q --status running actuator
-$avlite = Invoke-LapCompose ps -a -q avlite
+$bridge = Invoke-AvliteCompose ps -q --status running bridge
+$actuator = Invoke-AvliteCompose ps -q --status running actuator
+$avlite = Invoke-AvliteCompose ps -a -q avlite
 if (-not $bridge -or -not $actuator -or -not $avlite) {
-    throw 'Run .\run-windows.ps1 first and connect the simulator, then retry this script.'
+    throw 'Run .\avlite.ps1 start first and connect the simulator, then retry this script.'
 }
 
 $runName = (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '-' + $Label
-$recordDir = Join-Path $PSScriptRoot "log\recordings\$runName"
+$recordDir = Join-Path $ProjectRoot "log\recordings\$runName"
 $recorderName = 'autodrive-lap-' + [Guid]::NewGuid().ToString('N')
 $responseName = 'autodrive-response-' + [Guid]::NewGuid().ToString('N')
 $recording = Join-Path $recordDir 'telemetry.jsonl'
@@ -84,25 +87,34 @@ $controllerStopped = $false
 $drivingStarted = $false
 
 function Stop-LapController {
+    <#
+    .SYNOPSIS
+    Stop the controller used by this recording, leaving the sensor services up.
+    .DESCRIPTION
+    Response mode owns a separate, uniquely named container; ordinary laps use
+    the main AVLite service. Stopping the matching controller ends its command
+    stream, allowing the actuator watchdog to remove throttle. Docker failures
+    are raised so cleanup problems remain visible to the caller.
+    #>
     if ($responseMode) {
         & docker stop --time 5 $responseName | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'Could not stop response controller' }
     } else {
-        Invoke-LapCompose stop avlite
+        Invoke-AvliteCompose stop avlite
     }
     if ([Math]::Abs($sample.throttle_command) -gt 1 -or
         [Math]::Abs($sample.steering_command) -gt 1) { return $null }
 }
 
 try {
-    Invoke-LapCompose stop avlite
+    Invoke-AvliteCompose stop avlite
     $controllerStopped = $true
-    Invoke-LapCompose restart actuator
+    Invoke-AvliteCompose restart actuator
     Write-Host 'AVLite stopped. Reset the car to the starting position in the simulator.'
     Write-Host "Actuator settings reloaded. Recording will stop after $Laps laps or at the first collision/reset."
     Write-Host 'Keep Connection and Autonomous selected. Leave the simulator open.'
     if ($ResetSimulator) {
-        Invoke-LapCompose exec -T bridge /bin/bash -lc 'source /opt/ros/humble/setup.bash && python3 -m avlite_autodrive.simulator_reset'
+        Invoke-AvliteCompose exec -T bridge /bin/bash -lc 'source /opt/ros/humble/setup.bash && python3 -m avlite_autodrive.simulator_reset'
     } else {
         [void](Read-Host 'Press Enter after resetting; recording and driving will then start automatically')
     }
@@ -118,10 +130,12 @@ try {
         OutputDirectory = $recordDir
         RecorderName = $recorderName
     }
-    $job = Start-Job -ArgumentList $PSScriptRoot, $options -ScriptBlock {
+    # Capture in a background job so this script can watch readiness and stop
+    # the controller while the recorder finishes writing its graphs.
+    $job = Start-Job -ArgumentList $ProjectRoot, $options -ScriptBlock {
         param($projectRoot, $recordOptions)
         $ErrorActionPreference = 'Stop'
-        & (Join-Path $projectRoot 'record-windows.ps1') @recordOptions
+        & (Join-Path $projectRoot 'scripts\windows\record.ps1') @recordOptions
     }
     $readyDeadline = [DateTime]::UtcNow.AddSeconds($WaitForOdomSeconds + 30)
     $finishDeadline = $readyDeadline.AddSeconds($MaxSeconds + 60)
@@ -136,7 +150,7 @@ try {
         } elseif (-not $drivingStarted) {
             $sample = Get-ReadySample $recording
             if ($sample) {
-                $currentBridge = Invoke-LapCompose ps -q --status running bridge
+                $currentBridge = Invoke-AvliteCompose ps -q --status running bridge
                 if ($currentBridge -ne $bridge) {
                     throw 'The bridge changed during setup. Rerun this script after startup finishes.'
                 }
@@ -151,10 +165,10 @@ try {
                 if ($responseMode) {
                     $speedText = $ResponseSpeedMps.ToString([Globalization.CultureInfo]::InvariantCulture)
                     $command = "source /opt/ros/humble/setup.bash && exec python -m avlite_autodrive.runner --config /config/avlite.yaml --response-speed-mps $speedText --response-trials $ResponseTrials"
-                    Invoke-LapCompose run --no-deps -d --name $responseName `
+                    Invoke-AvliteCompose run --no-deps -d --name $responseName `
                         --entrypoint /bin/bash avlite -lc $command
                 } else {
-                    Invoke-LapCompose start avlite
+                    Invoke-AvliteCompose start avlite
                 }
                 $drivingStarted = $true
                 Write-Host "Recording is ready. AVLite is driving; capture ends after $Laps laps or an incident."
@@ -207,7 +221,7 @@ try {
         try { & docker rm --force $responseName 2>$null | Out-Null }
         catch { Write-Verbose "Response controller already removed: $_" }
         if (Test-Path -LiteralPath $summaryPath) {
-            & (Join-Path $PSScriptRoot 'measure-response.ps1') -RecordingDirectory $recordDir -NoOpen
+            & (Join-Path $PSScriptRoot 'response.ps1') -RecordingDirectory $recordDir -NoOpen
         }
     }
 }

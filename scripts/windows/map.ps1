@@ -1,15 +1,25 @@
+<#
+.SYNOPSIS
+Convert a recorded clean lap and its LiDAR outline into a race map and plan.
+.DESCRIPTION
+RecordingDirectory must contain telemetry.jsonl and telemetry.track.json. The
+offline converter writes boundaries, a validated plan and an overlay under
+config/maps using Name. Existing maps are protected from overwriting; inspect
+the output before selecting it in the active AVLite configuration.
+#>
 param(
     [Parameter(Mandatory = $true)][string]$RecordingDirectory,
     [ValidatePattern('^[A-Za-z0-9_-]+$')][string]$Name = 'practice'
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'common.ps1')
 $recording = (Resolve-Path -LiteralPath $RecordingDirectory).Path
 if (-not (Test-Path -LiteralPath (Join-Path $recording 'telemetry.jsonl')) -or
     -not (Test-Path -LiteralPath (Join-Path $recording 'telemetry.track.json'))) {
     throw 'Select a recording with telemetry.jsonl and telemetry.track.json.'
 }
-$maps = Join-Path $PSScriptRoot 'config\maps'
+$maps = Join-Path $ProjectRoot 'config\maps'
 New-Item -ItemType Directory -Path $maps -Force | Out-Null
 if (Test-Path -LiteralPath (Join-Path $maps "$Name.json")) {
     throw 'That map already exists. Choose a new -Name to preserve its provenance.'
@@ -17,8 +27,8 @@ if (Test-Path -LiteralPath (Join-Path $maps "$Name.json")) {
 # Isolated offline container: this command never starts the car or ROS stack.
 & docker run --rm --network none -e PYTHONDONTWRITEBYTECODE=1 -e OPENBLAS_NUM_THREADS=1 `
     -v "${recording}:/records:ro" -v "${maps}:/maps" `
-    -v "${PSScriptRoot}/config:/config:ro" `
-    -v "${PSScriptRoot}/src/avlite_autodrive:/opt/integration:ro" `
+    -v "${ProjectRoot}/config:/config:ro" `
+    -v "${ProjectRoot}/src/avlite_autodrive:/opt/integration:ro" `
     --entrypoint /opt/avlite-venv/bin/python autodrive-roboracer-avlite:local `
     -m avlite_autodrive.race_map /records/telemetry.jsonl `
     --output "/maps/$Name.json" --config /config/avlite.yaml
