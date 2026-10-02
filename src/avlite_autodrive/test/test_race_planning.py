@@ -15,7 +15,7 @@ from avlite.c50_common.c52_world_sensor_datatypes import Lidar, SensorFrame
 
 from avlite_autodrive.configuration import load_config
 from avlite_autodrive.plugin.planned_controller import (
-    AutoDRIVEPlannedController, AutoDRIVESensorFrame,
+    AutoDRIVEPlannedController, AutoDRIVESensorFrame, swept_hit_distance,
 )
 from avlite_autodrive.race_map import ClosedPath, build_map, clean_lap, validate_map
 from avlite_autodrive.race_planning import PlanningConfig, prepare_plan
@@ -150,6 +150,31 @@ def test_upstream_plan_limits_include_closing_segment(prepared):
     assert np.all(-dv2 <= 3 * ds + 1e-5)
 
 
+def test_above_ten_plan_and_controller_on_sufficiently_large_track(profile, tmp_path, monkeypatch):
+    # A large-radius synthetic track isolates software limits from the practice
+    # track's geometry. This is not measured simulator/hardware performance.
+    angles = np.arange(0, 2 * np.pi, 0.005)
+    directions = np.column_stack([np.cos(angles), np.sin(angles)])
+    data = circle_map()
+    data.update(LeftBound=(39.3 * directions).tolist(),
+                RightBound=(40.7 * directions).tolist())
+    filename = tmp_path / "large-track.json"
+    filename.write_text(json.dumps(data))
+    profile["planning"].update(map_path=str(filename), max_velocity_mps=12.0)
+    for key in ("c32_ego_max_velocity", "c35_cruise_velocity"):
+        profile["c30_control"][key] = 12.0
+        monkeypatch.setattr(ControlSettings, key, 12.0)
+    prepared = prepare_plan(profile, tmp_path / "avlite.yaml")
+    assert max(prepared.global_plan.velocity) > 10.0
+    assert max(prepared.global_plan.velocity) <= 12.0
+    controller = AutoDRIVEPlannedController(prepared)
+    for s in (prepared.path.length - 0.05, 0.05):
+        cmd = controller.control(state_at(prepared, s, speed=10.0),
+                                 prepared.global_plan, sensors=clear_scan())
+        assert controller.diagnostics["target_velocity_mps"] > 10.0
+        assert cmd.acceleration > 0.0
+
+
 def test_pure_pursuit_wraps_finish_line_and_starts_mid_lap(prepared):
     controller = AutoDRIVEPlannedController(prepared)
     assert isinstance(controller, PurePursuitController)
@@ -196,6 +221,35 @@ def test_obstacle_on_curved_path_and_sensor_mount(prepared):
     assert controller.diagnostics["speed_limit_reason"] == 2
     assert controller.diagnostics["target_velocity_mps"] < 1.0
     assert controller.diagnostics["clearance_m"] < 0.8
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_spatial_sweep_matches_full_pairwise_clearance(seed):
+    rng = np.random.default_rng(seed)
+    theta = np.linspace(0, 2 * np.pi, 600)
+    xy = 3 * np.column_stack([np.cos(theta), np.sin(theta)])
+    directions = np.column_stack([-np.sin(theta), np.cos(theta)])
+    distance = 3 * theta
+    hits = rng.uniform(-5, 5, (1080, 2))
+    hits[:, 0] = -np.abs(hits[:, 0]) - 0.5  # First contact must be ahead on the curve.
+    wheelbase, radius = 0.324, 0.315
+    offset = hits[:, None, :] - xy[None, :, :]
+    along = np.clip(np.sum(offset * directions[None, :, :], axis=2), 0, wheelbase)
+    separation = offset - along[:, :, None] * directions[None, :, :]
+    blocked = np.any(np.sum(separation**2, axis=2) <= radius**2, axis=0)
+    expected = min(distance[blocked]) if np.any(blocked) else math.inf
+    assert 0 < expected < distance[-1]
+    assert swept_hit_distance(hits, xy, directions, distance, wheelbase, radius) == expected
+
+
+def test_spatial_sweep_includes_end_caps_and_clear_path():
+    xy, directions = np.array([[0., 0.]]), np.array([[1., 0.]])
+    distance = np.array([0.5])
+    for hit in ([0.324 + 0.3149, 0.], [-0.3149, 0.], [0.16, 0.3149]):
+        assert swept_hit_distance(np.array([hit]), xy, directions, distance,
+                                  0.324, 0.315) == 0.5
+    for hits in (np.array([[10., 10.]]), np.empty((0, 2))):
+        assert math.isinf(swept_hit_distance(hits, xy, directions, distance, 0.324, 0.315))
 
 
 @pytest.mark.parametrize("failure", ["scan", "age", "pose", "heading", "plan"])

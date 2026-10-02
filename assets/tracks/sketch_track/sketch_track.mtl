@@ -1,0 +1,16 @@
+# Simple diffuse materials; no texture files required.
+newmtl Asphalt
+Ka 0.08 0.09 0.11
+Kd 0.20 0.23 0.27
+Ks 0.05 0.05 0.05
+Ns 12
+d 1.0
+illum 2
+
+newmtl Barrier_Red
+Ka 0.18 0.04 0.03
+Kd 0.88 0.22 0.13
+Ks 0.18 0.18 0.18
+Ns 30
+d 1.0
+illum 2
