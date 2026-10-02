@@ -1,9 +1,7 @@
-version: "3.9"
-
 # Production compose — mirrors the manual docker run commands from the guide.
 # Usage:
 #   xhost local:root
-#   docker compose up
+#   docker compose --project-directory . -f docker/legacy/compose.yml up
 #
 # Both services share the host network so they can talk over 127.0.0.1:4567.
 

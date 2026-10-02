@@ -1,3 +1,12 @@
+<#
+.SYNOPSIS
+Record simulator telemetry and generate graphs without controlling the car.
+.DESCRIPTION
+Creates a new recording directory containing telemetry, plots, controller logs
+and a snapshot of the on-disk YAML settings and Git revision. Recording can end
+at a time limit, a requested lap count, or an incident. The controlled-lap script
+wraps this recorder when driving must also start and stop automatically.
+#>
 param(
     [ValidateRange(1, 86400)][int]$Seconds = 120,
     [ValidatePattern('^[A-Za-z0-9_-]+$')][string]$Label = 'run',
@@ -12,11 +21,18 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'common.ps1')
 $lapTarget = if ($PSBoundParameters.ContainsKey('Laps')) { $Laps } elseif ($StopAfterLap) { 1 } else { $null }
-$compose = @('compose', '-f', "$PSScriptRoot\docker-compose.avlite.yml",
-    '-f', "$PSScriptRoot\docker-compose.windows.yml")
 
 function Invoke-RecorderDocker {
+    <#
+    .SYNOPSIS
+    Run Docker while preserving readable output inside a PowerShell job.
+    .DESCRIPTION
+    Arguments are forwarded to Docker and both output streams become text.
+    The caller checks recorderDockerExitCode to decide whether the operation
+    failed. The temporary error preference is restored even if execution fails.
+    #>
     # Windows PowerShell jobs treat native stderr as error records, even for
     # successful Docker progress messages. Print them and check the exit code.
     $savedPreference = $ErrorActionPreference
@@ -31,25 +47,27 @@ function Invoke-RecorderDocker {
 
 $bridge = Invoke-RecorderDocker @compose ps -q --status running bridge
 if ($recorderDockerExitCode -ne 0 -or -not $bridge) {
-    throw 'Start the simulator with .\run-windows.ps1 and connect it before recording.'
+    throw 'Start the simulator with .\avlite.ps1 start and connect it before recording.'
 }
 
 $startedUtc = [DateTime]::UtcNow.ToString('o')
 $runName = (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '-' + $Label
 $recordDir = if ($OutputDirectory) {
-    [System.IO.Path]::GetFullPath($OutputDirectory)
+    $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputDirectory)
 } else {
-    Join-Path $PSScriptRoot "log\recordings\$runName"
+    Join-Path $ProjectRoot "log\recordings\$runName"
 }
 if (Test-Path -LiteralPath $recordDir) {
     throw "Recording directory already exists; choose a new directory: $recordDir"
 }
+# Save the settings beside the data so later comparisons can identify the run.
+# These are files on disk; a running controller may still need a settings reload.
 $configDir = Join-Path $recordDir 'config'
 New-Item -ItemType Directory -Path $configDir -Force | Out-Null
-Get-ChildItem -LiteralPath "$PSScriptRoot\config" -Filter '*.yaml' |
+Get-ChildItem -LiteralPath "$ProjectRoot\config" -Filter '*.yaml' |
     Copy-Item -Destination $configDir
-$commit = & git -C $PSScriptRoot rev-parse HEAD
-$dirty = [bool](& git -C $PSScriptRoot status --porcelain)
+$commit = & git -C $ProjectRoot rev-parse HEAD
+$dirty = [bool](& git -C $ProjectRoot status --porcelain)
 @{
     started_utc = $startedUtc
     requested_seconds = $Seconds

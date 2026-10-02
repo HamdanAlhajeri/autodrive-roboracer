@@ -11,9 +11,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Response-controller lifecycle and failure cleanup
+      - name: Windows command routing and response-controller cleanup
         shell: powershell
-        run: .\tests\test-response-workflow.ps1
+        run: .\avlite.ps1 test
 
   lint:
     runs-on: ubuntu-22.04

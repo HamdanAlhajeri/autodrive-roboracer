@@ -1,9 +1,7 @@
-version: "3.9"
-
 # Development override — opens interactive shells instead of auto-launching.
 # Usage:
 #   xhost local:root
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm devkit
+#   docker compose --project-directory . -f docker/legacy/compose.yml -f docker/legacy/compose.dev.yml run --rm devkit
 #
 # Inside the devkit shell:
 #   colcon build --packages-select my_team_racer
@@ -11,7 +9,7 @@ version: "3.9"
 #   ros2 launch my_team_racer racer.launch.py
 #
 # Run tests only (no display needed):
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm test
+#   docker compose --project-directory . -f docker/legacy/compose.yml -f docker/legacy/compose.dev.yml run --rm test
 
 services:
   simulator:

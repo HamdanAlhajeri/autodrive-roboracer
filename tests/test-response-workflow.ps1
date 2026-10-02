@@ -3,7 +3,12 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('response-workflow-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $testRoot | Out-Null
-Copy-Item -LiteralPath (Join-Path $root 'record-one-lap.ps1'), (Join-Path $root 'measure-response.ps1') -Destination $testRoot
+$testScripts = Join-Path $testRoot 'scripts\windows'
+New-Item -ItemType Directory -Path $testScripts -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $root 'avlite.ps1') -Destination $testRoot
+foreach ($name in @('common.ps1', 'laps.ps1', 'response.ps1')) {
+    Copy-Item -LiteralPath (Join-Path $root "scripts\windows\$name") -Destination $testScripts
+}
 
 function global:Read-Host { return '' }
 function global:Start-Sleep { }
@@ -40,6 +45,7 @@ function global:docker {
     $global:calls.Add($call)
     if ($args[0] -eq 'compose') {
         if ($args -contains 'ps') { return 'stable-container' }
+        if ($args -contains 'start') { $global:started = $true }
         if ($args -contains 'run') {
             $global:started = $true
             if ($global:scenario -eq 'partial-start') { $global:LASTEXITCODE = 1 }
@@ -55,18 +61,34 @@ function global:docker {
 }
 
 try {
-    foreach ($global:scenario in @('success', 'auto-reset', 'partial-start', 'recorder-failure', 'controller-exit')) {
+    foreach ($global:scenario in @('normal-laps', 'success', 'auto-reset', 'partial-start', 'recorder-failure', 'controller-exit')) {
         $global:calls = [Collections.Generic.List[string]]::new()
         $global:started = $false
         $failed = $false
         try {
-            & (Join-Path $testRoot 'record-one-lap.ps1') -ResponseSpeedMps 1.5 -ResponseTrials 3 `
-                -Label $global:scenario -NoOpen -ResetSimulator:($global:scenario -eq 'auto-reset')
+            if ($global:scenario -eq 'normal-laps') {
+                & (Join-Path $testRoot 'avlite.ps1') laps -Laps 3 -Label team-test -NoOpen
+            } else {
+                & (Join-Path $testRoot 'avlite.ps1') response -TargetSpeedMps 1.5 -Trials 3 `
+                    -NoOpen -ResetSimulator:($global:scenario -eq 'auto-reset')
+            }
         } catch {
             $failed = $true
             Write-Output "Expected failure path: $_"
         }
-        if ($failed -ne ($global:scenario -notin @('success', 'auto-reset'))) { throw "Wrong result: $global:scenario" }
+        if ($failed -ne ($global:scenario -notin @('normal-laps', 'success', 'auto-reset'))) { throw "Wrong result: $global:scenario" }
+        if ($global:scenario -eq 'normal-laps') {
+            if ($global:options.Laps -ne 3 -or $global:options.ResponseData -or
+                $global:options.Label -ne 'team-test' -or -not $global:options.StopOnIncident) {
+                throw 'Normal lap capture options were not forwarded'
+            }
+            if (@($global:calls | Where-Object { $_ -match ' start avlite$' }).Count -ne 1 -or
+                @($global:calls | Where-Object { $_ -match ' stop avlite$' }).Count -ne 2) {
+                throw 'Normal lap controller was not started and stopped as expected'
+            }
+            Write-Output 'PASS: normal-laps'
+            continue
+        }
         if ($global:scenario -eq 'auto-reset' -and
             -not ($global:calls | Where-Object { $_ -match 'avlite_autodrive.simulator_reset' })) {
             throw 'Automatic simulator reset was not invoked'
