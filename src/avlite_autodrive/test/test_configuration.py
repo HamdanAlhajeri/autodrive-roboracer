@@ -29,7 +29,7 @@ def test_editing_one_file_updates_both_profiles(profiles, monkeypatch, tmp_path)
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
-    for speed, throttle in [(5, 0.2), (0.75, 0.03)]:
+    for speed, throttle in [(5, 0.2), (12, 0.6), (0.75, 0.03)]:
         (profiles / "driving.yaml").write_text(
             f"speed_mps: {speed}\nmax_throttle: {throttle}\n"
         )
