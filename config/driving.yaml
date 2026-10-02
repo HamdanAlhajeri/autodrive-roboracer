@@ -1,7 +1,8 @@
 # Edit the numbers, keeping the setting names unchanged, then restart avlite and actuator.
 # Speed sets AVLite cruise/max velocity and the actuator's speed-demand limit.
-# Next planned-mode screening stage after the clean 2.5 m/s baseline.
-# Increase in 0.5 m/s steps only after three clean laps at each stage.
-speed_mps: 3.0
+# Practice track speed ceiling. The planner still slows for corners and braking;
+# the requested ceiling is not a promise of achieved speed.
+# Run .\avlite.ps1 speed to inspect the actual planned range before driving.
+speed_mps: 10.0
 # Normalized throttle ceiling [0, 1]; independent of the requested speed.
-max_throttle: 0.25
+max_throttle: 0.5
