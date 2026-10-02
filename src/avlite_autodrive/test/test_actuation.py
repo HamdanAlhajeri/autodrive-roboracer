@@ -51,6 +51,20 @@ def test_large_acceleration_commands_still_use_existing_limits():
     assert c.target_speed == pytest.approx(2.85)  # -3 m/s² limit.
 
 
+def test_above_ten_speed_demand_preserves_braking_and_watchdog():
+    c = Actuation(Limits(max_speed=12.0, max_throttle=0.6))
+    for i in range(170):
+        now = 10 + i * 0.05
+        ready(c, now=now, speed=c.target_speed, acceleration=1.5)
+        throttle, _ = c.tick(now, 0.05)
+        assert 0 <= throttle <= 0.6
+    assert c.target_speed == 12.0
+    assert throttle == pytest.approx(0.48, abs=0.005)
+    ready(c, now=now, speed=12.0, acceleration=-2.0)
+    assert c.tick(now, 0.05)[0] == 0.0
+    assert c.tick(now + 0.51, 0.05) == (0.0, 0.0)
+
+
 def test_braking_never_reverses_and_overspeed_cuts_throttle():
     c = Actuation()
     ready(c, acceleration=-2, speed=0.5)

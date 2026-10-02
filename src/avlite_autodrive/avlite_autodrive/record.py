@@ -25,6 +25,15 @@ from .telemetry_health import ActuatorPublicationHealth
 
 
 def main():
+    """Subscribe to simulator telemetry and save a recording with a final run summary.
+
+    Wait for valid odometry before starting the clock, write normal samples at about 10 Hz,
+    and optionally save every odometry update for response analysis. Track laps, incidents
+    and input freshness, and preserve partial results on failure.
+
+    This process only records: the Windows workflow controls when driving starts and stops.
+    Return an exit code indicating completion, interruption or failure.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--seconds", type=float, default=600)
     parser.add_argument("--output", required=True)
@@ -72,6 +81,7 @@ def main():
     stopped = False
 
     def stop(*_):
+        """Request a recording shutdown so the finally block can save its summary."""
         nonlocal stopped
         stopped = True
 
@@ -80,6 +90,11 @@ def main():
 
     def scalar(name, msg):
         # AutoDRIVE sends infinity until the first timed lap; keep valid JSON.
+        """Store one scalar topic value, its receive time and any initial baseline.
+
+        Convert invalid numbers to None and send valid lap-counter updates to the finish-
+        crossing tracker after recording begins.
+        """
         value = msg.data if math.isfinite(msg.data) else None
         if name in counter_names and (value is None or value < 0):
             value = None
@@ -91,6 +106,12 @@ def main():
             progress.observe(value, time.monotonic() - start)
 
     def odom(msg):
+        """Update pose, speed, travelled distance and motion/reset observations.
+
+        Skip invalid odometry and treat large position jumps separately from driven
+        distance. If response capture is enabled, save this incoming update immediately with
+        its source stamp and receive time.
+        """
         nonlocal previous, first_motion_elapsed_s, recording_started_stationary, response_samples
         try:
             x, y, heading, speed = odom_state(msg)
@@ -124,6 +145,9 @@ def main():
             })
 
     def command(msg):
+        """Record AVLite's requested steering angle and acceleration, replacing invalid values
+        with None.
+        """
         last_received["avlite_command"] = time.monotonic()
         state.update(
             avlite_steer_rad=(
@@ -135,16 +159,23 @@ def main():
         )
 
     def reset(msg):
+        """Count a simulator reset and clear pending LiDAR/pose pairings for the outline."""
         if msg.data:
             counters["resets"] += 1
             if track_map is not None:
                 track_map.reset()
 
     def scan(msg):
+        """Pass scans to the outline builder once recording has started and map capture is
+        enabled.
+        """
         if track_map is not None and start is not None:
             track_map.add_scan(msg, time.monotonic())
 
     def diagnostics(name, fields, msg):
+        """Merge an allowed diagnostic snapshot into recording state and update its receive
+        time.
+        """
         values = diagnostic_values(msg.data, fields)
         if values is not None:
             state.update(values)
@@ -153,6 +184,11 @@ def main():
     def race_plan(msg):
         # Capture the plan actually used by the running controller, not a later
         # recomputation using possibly edited files. The topic is latched at startup.
+        """Save the plan, map and effective settings published by the running controller.
+
+        Validate the artifact shape before writing companion JSON files. Using the retained
+        ROS message preserves what actually drove the run, even if YAML files change later.
+        """
         try:
             artifact = json.loads(msg.data)
             if (artifact.get("version") != 1 or artifact.get("frame_id") != "world"
@@ -169,6 +205,11 @@ def main():
             node.get_logger().error(f"Ignoring invalid race plan: {exc}")
 
     def check_counters(now, elapsed):
+        """Check whether lap and collision counters remain present, fresh and valid.
+
+        Keep the first telemetry failure and note if the car moved before a baseline
+        existed. A counter increase alone is not enough to certify a clean run.
+        """
         nonlocal counter_telemetry_status, counter_telemetry_error
         nonlocal counter_baseline_before_motion
         missing, stale, invalid = [], [], []
@@ -201,6 +242,11 @@ def main():
                 )
 
     def write_sample(stream, now, extra=None):
+        """Write and flush one JSON line containing current values, counts and input ages.
+
+        UTC labels the recording for a person; elapsed and freshness times use the monotonic
+        clock. extra adds source-rate response metadata when needed.
+        """
         sample = {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
             "elapsed_s": now - start,
@@ -243,6 +289,11 @@ def main():
     stop_reason = "time_limit"
 
     def check_actuator(now, elapsed):
+        """Update the command-publication check using current motion and startup timing.
+
+        The recorder uses this result when deciding whether lap screening has enough
+        reliable actuator evidence.
+        """
         actuator_health.check(
             now, state, last_received, moving=abs(state.get("speed", 0)) > 0.1,
             startup_expired=elapsed >= args.wait_for_odom,

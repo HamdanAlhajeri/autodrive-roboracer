@@ -12,16 +12,27 @@ from ..response_test import ResponseExperiment
 
 class AutoDRIVEResponseController(AutoDRIVEPlannedController):
     def __init__(self, prepared, speed, trials, clock=time.monotonic):
+        """Add a timed coasting experiment to the normal planned controller.
+
+        The injectable monotonic clock allows repeatable tests without waiting in real time.
+        """
         super().__init__(prepared)
         self.experiment = ResponseExperiment(speed, trials)
         self.clock = clock
 
     def reset(self):
+        """Reset path tracking and invalidate an experiment that had already started."""
         super().reset()
         if hasattr(self, "experiment"):
             self.experiment.reset()
 
     def control(self, ego, plan=None, control_dt=None, perception_model=None, sensors=None):
+        """Follow the racing line while checking whether a coast measurement can begin.
+
+        Require fresh sensors, small steering and path error, and a nearly straight route
+        ahead. During a coast or abort, retain the planned steering but request zero
+        throttle through the actuator's deceleration branch.
+        """
         cmd = super().control(ego, plan, control_dt, perception_model, sensors)
         diag, experiment = self.diagnostics, self.experiment
         safe = bool(diag.get("plan_valid"))

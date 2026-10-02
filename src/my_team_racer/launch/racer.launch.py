@@ -3,6 +3,7 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
+    """Return a ROS launch description for the standalone racer node with console logging."""
     return LaunchDescription([
         Node(
             package="my_team_racer",

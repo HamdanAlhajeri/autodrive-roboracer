@@ -19,6 +19,11 @@ class AutoDRIVEFollowTheGap(FollowTheGapController):
     }
 
     def __init__(self, *args, racing=None, **kwargs):
+        """Configure the reactive controller and optional racing speed limits.
+
+        Check preview distances and braking assumptions against the vehicle limits. When
+        racing settings are omitted, retain the existing baseline gap-following behaviour.
+        """
         super().__init__(*args, **kwargs)
         self.racing = None
         if racing is not None:
@@ -57,6 +62,9 @@ class AutoDRIVEFollowTheGap(FollowTheGapController):
         self.blocked = True
 
     def _clear_diagnostics(self):
+        """Start a fresh diagnostic snapshot so values from an earlier scan cannot leak into
+        this tick.
+        """
         self.diagnostics = {
             "target_velocity_mps": 0.0,
             "lookahead_m": 0.0,
@@ -74,6 +82,7 @@ class AutoDRIVEFollowTheGap(FollowTheGapController):
         }
 
     def reset(self):
+        """Clear upstream control memory, the previous target direction and local diagnostics."""
         super().reset()
         self.bearing = 0.0
         self.blocked = True
@@ -105,6 +114,11 @@ class AutoDRIVEFollowTheGap(FollowTheGapController):
         return np.maximum(np.minimum(collision_distance, horizon), 0.0)
 
     def _select_opening(self, free, candidates, preferred):
+        """Group adjacent clear candidate rays and select a usable opening.
+
+        Prefer wider groups, with a small preference for the previous target direction to
+        reduce left-right switching. Return ray indices, or None if no group is wide enough.
+        """
         indices = np.flatnonzero(free)
         groups = np.split(indices, np.where(np.diff(indices) > 1)[0] + 1)
         groups = [group for group in groups if len(group) >= 5]
@@ -114,6 +128,14 @@ class AutoDRIVEFollowTheGap(FollowTheGapController):
         return max(groups, key=lambda g: len(g) - 12 * abs(candidates[g[len(g) // 2]] - preferred))
 
     def largest_gap_target(self, ego_pts, ld, preferred_bearing=None):
+        """Choose a local (x, y) steering target from LiDAR points in the car frame.
+
+        ld is the steering lookahead in metres. Racing mode can inspect farther ahead for
+        gap selection, then shorten that preview at a tight bend. It also records speed
+        limits from curvature and available stopping distance.
+
+        Return None and mark the path blocked when the scan cannot support a target.
+        """
         self._clear_diagnostics()
         # Gap selection can inspect farther ahead without weakening tight-turn
         # steering by lengthening the Pure Pursuit target radius as well.
@@ -198,10 +220,21 @@ class AutoDRIVEFollowTheGap(FollowTheGapController):
     def steer_to_ego_target(self, target_ego_xy, ld):
         # Upstream retains its original Ld after gap selection. A shortened
         # fallback target needs its actual radius in the bicycle-model equation.
+        """Use Pure Pursuit to turn a car-frame target into a steering angle.
+
+        When gap selection shortened the target distance, use that actual distance in the
+        steering calculation.
+        """
         actual_ld = math.hypot(*target_ego_xy) if self.racing is not None else ld
         return super().steer_to_ego_target(target_ego_xy, actual_ld)
 
     def velocity_pid(self, ego, target_velocity):
+        """Limit the requested speed, then use AVLite's speed controller to request
+        acceleration.
+
+        Racing mode respects curvature and stopping-distance limits; the baseline mode
+        reduces speed with steering direction. Return acceleration in m/s^2, not throttle.
+        """
         demand = max(0.0, min(target_velocity, self.cruise_velocity))
         if self.racing is None:
             demand *= max(0.35, np.cos(self.bearing) ** 2)
@@ -221,6 +254,11 @@ class AutoDRIVEFollowTheGap(FollowTheGapController):
         return float(acceleration)
 
     def control(self, ego, plan=None, control_dt=None, perception_model=None, sensors=None):
+        """Run one Follow the Gap update and record any output saturation.
+
+        If no usable gap was found, clear speed-controller memory and request deceleration
+        with straight steering.
+        """
         self.blocked = True
         self._clear_diagnostics()
         cmd = super().control(ego, plan, control_dt, perception_model, sensors)

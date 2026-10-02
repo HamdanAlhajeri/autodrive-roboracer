@@ -10,12 +10,19 @@ from .ros_utils import PREFIX, odom_state
 
 
 def main():
+    """Request a simulator reset and wait for fresh, stationary feedback with zero counters.
+
+    Wait for the bridge subscriber, pulse the reset flag, then require stable confirmation.
+    Always release the flag and shut down the temporary ROS node, even if confirmation
+    fails.
+    """
     rclpy.init()
     node = rclpy.create_node("autodrive_simulator_reset")
     publisher = node.create_publisher(Bool, "/autodrive/reset_command", 1)
     received, state = {}, {}
 
     def odom(msg):
+        """Remember valid forward speed and its receive time for reset confirmation."""
         try:
             state["speed"] = odom_state(msg)[3]
             received["odom"] = time.monotonic()
@@ -23,6 +30,7 @@ def main():
             pass
 
     def counter(name, msg):
+        """Store a lap or collision counter together with its local receive time."""
         state[name] = msg.data
         received[name] = time.monotonic()
 
@@ -32,6 +40,11 @@ def main():
                                  lambda msg, n=name: counter(n, msg), 10)
 
     def pump(duration, reset):
+        """Publish the chosen reset flag repeatedly while servicing incoming ROS messages.
+
+        The duration is measured with a monotonic clock so wall-clock adjustments do not
+        stretch the reset pulse.
+        """
         end = time.monotonic() + duration
         while time.monotonic() < end:
             publisher.publish(Bool(data=reset))

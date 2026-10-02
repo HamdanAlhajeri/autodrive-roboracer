@@ -9,6 +9,11 @@ from pathlib import Path
 
 
 def read_samples(path):
+    """Read JSONL telemetry in file order, ignoring blank lines.
+
+    Require a finite elapsed_s in every sample and at least one sample overall. Errors
+    include the file and line number to help locate bad data.
+    """
     rows = []
     with Path(path).open(encoding="utf-8") as stream:
         for line_number, line in enumerate(stream, 1):
@@ -25,6 +30,11 @@ def read_samples(path):
 
 
 def series(rows, key, freshness_key=None):
+    """Extract one numeric field for plotting, using NaN to leave gaps in missing data.
+
+    When an age field is supplied and its value exceeds 0.5 seconds, hide that stale point
+    rather than drawing it as a current measurement.
+    """
     values = []
     for row in rows:
         value = row.get(key)
@@ -40,6 +50,10 @@ def series(rows, key, freshness_key=None):
 
 
 def export_csv(rows, path):
+    """Write all recorded fields to a CSV, keeping column order by first appearance.
+
+    The union of keys preserves diagnostics that only appear after startup.
+    """
     columns = list(dict.fromkeys(key for row in rows for key in row))
     with Path(path).open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=columns)
@@ -48,7 +62,11 @@ def export_csv(rows, path):
 
 
 def track_map_points(track_map):
-    """Validate a world-frame observed outline before mixing it with the trajectory."""
+    """Validate an observed outline and return its world x/y points in metres.
+
+    Reject wrong versions, frames, units or malformed coordinates before mixing them with
+    the driven path. A missing outline returns an empty list.
+    """
     if track_map is None:
         return []
     if not isinstance(track_map, dict):
@@ -70,7 +88,11 @@ def track_map_points(track_map):
 
 
 def load_track_map(recording, explicit_path=None):
-    """Use the selected sidecar only; never invent a track for older recordings."""
+    """Load an explicit outline file or the recording's matching .track.json file.
+
+    Return None with an explanatory message if it is unavailable or invalid, allowing the
+    trajectory plot to be generated without an invented track outline.
+    """
     path = Path(explicit_path) if explicit_path is not None else Path(recording).with_suffix(
         ".track.json"
     )
@@ -86,6 +108,11 @@ def load_track_map(recording, explicit_path=None):
 
 
 def plot_track_overlay(axis, track_map):
+    """Draw validated LiDAR surface hits in gray behind the vehicle path.
+
+    Points may include obstacles as well as track walls; empty space is not labelled as free
+    space.
+    """
     points = track_map_points(track_map)
     if points:
         axis.scatter([point[0] for point in points], [point[1] for point in points],
@@ -94,7 +121,11 @@ def plot_track_overlay(axis, track_map):
 
 
 def plot_path_events(axis, rows, x, y):
-    """Locate incidents at the last fresh pre-event pose, never the reset destination."""
+    """Mark collisions and resets at the last usable position before each event.
+
+    Using the previous pose avoids drawing a collision marker at the car's reset
+    destination. Labels include recording time and avoid duplicate legend entries.
+    """
     labelled = set()
     for i in range(1, len(rows)):
         if not math.isfinite(x[i - 1]) or not math.isfinite(y[i - 1]):
@@ -120,6 +151,10 @@ def plot_path_events(axis, rows, x, y):
 
 
 def plot_speed_targets(axis, rows, elapsed):
+    """Overlay available planned, controller and actuator speed targets on a time graph.
+
+    Mask stale diagnostics and skip a target series if it contains no usable values.
+    """
     for key, label, age in (
         ("planned_speed_mps", "Planned speed", "controller_diagnostics_age_s"),
         ("target_velocity_mps", "Controller target", "controller_diagnostics_age_s"),
@@ -131,6 +166,11 @@ def plot_speed_targets(axis, rows, elapsed):
 
 
 def plot_run(rows, path, title="AutoDRIVE telemetry", track_map=None):
+    """Save a six-panel overview of speed, commands, trajectory and simulator counters.
+
+    Use elapsed recording time for the plots and a UTC start label for reference. Break the
+    trajectory at resets and reject recordings with no usable odometry.
+    """
     import matplotlib
 
     matplotlib.use("Agg")
@@ -148,6 +188,7 @@ def plot_run(rows, path, title="AutoDRIVE telemetry", track_map=None):
     fig.suptitle(title + (f"\nStarted {start}" if start else ""), fontsize=14)
 
     def line(axis, key, label, age_key, **kwargs):
+        """Plot a timestamp-aligned field using the shared freshness filtering and line style."""
         axis.plot(elapsed, series(rows, key, age_key), label=label, linewidth=1.4, **kwargs)
 
     speed_ax, throttle_ax, steering_ax, accel_ax, path_ax, event_ax = axes.flat
@@ -194,7 +235,11 @@ def plot_run(rows, path, title="AutoDRIVE telemetry", track_map=None):
 
 
 def lap_report_title(rows, summary=None):
-    """Describe observed counters, without claiming a complete start-to-finish lap."""
+    """Build a report title from observed counters, run status and the UTC recording date.
+
+    Describe counter changes without assuming the first recorded crossing represents a full
+    lap from the start line.
+    """
     summary = summary or {}
     details = []
     for key, label in (("lap_count", "lap count"), ("collision_count", "collision count")):
@@ -234,7 +279,12 @@ def lap_report_title(rows, summary=None):
 
 
 def plot_lap_report(rows, path, summary=None, speed_ceiling=None, track_map=None):
-    """Plot measured trajectory and speed side by side, keeping gaps in real data."""
+    """Save side-by-side trajectory and speed graphs for a recorded run.
+
+    Show recording endpoints, incidents, optional LiDAR hits and the saved speed ceiling.
+    Missing positions and resets break the path line instead of connecting unrelated
+    locations.
+    """
     import matplotlib
 
     matplotlib.use("Agg")
@@ -297,7 +347,11 @@ def plot_lap_report(rows, path, summary=None, speed_ceiling=None, track_map=None
 
 
 def measured_acceleration(rows):
-    """Differentiate fresh samples without interpreting a reset as physical braking."""
+    """Estimate acceleration in m/s^2 from successive fresh speed samples.
+
+    Leave gaps across long sample intervals, resets or collision changes so jumps in the
+    recording are not presented as physical braking.
+    """
     speed = series(rows, "speed", "odom_age_s")
     acceleration = [math.nan] * len(rows)
     for i in range(1, len(rows)):
@@ -310,7 +364,11 @@ def measured_acceleration(rows):
 
 
 def plot_control_report(rows, path):
-    """Diagnostics for corner entry and real throttle/deceleration response."""
+    """Save detailed plots explaining steering, speed limits, throttle and control timing.
+
+    Add preview and target-direction panels only when those diagnostics exist. Mark
+    saturation and incidents to help compare controller requests with measured response.
+    """
     import matplotlib
 
     matplotlib.use("Agg")
@@ -322,6 +380,7 @@ def plot_control_report(rows, path):
     bearing_keys = ("target_bearing_raw_rad", "target_bearing_rad")
 
     def has_values(keys):
+        """Check whether any requested diagnostic field contains usable, recent data."""
         return any(math.isfinite(value) for key in keys
                    for value in series(rows, key, diagnostics_age))
 
@@ -337,6 +396,7 @@ def plot_control_report(rows, path):
     fig.suptitle("Corner-entry diagnostics", fontsize=16)
 
     def line(axis, key, label, age):
+        """Draw one diagnostic series against elapsed time with stale values hidden."""
         axis.plot(elapsed, series(rows, key, age), label=label, linewidth=1.2)
 
     line(speed_ax, "speed", "Measured", "odom_age_s")
@@ -409,7 +469,10 @@ def plot_control_report(rows, path):
 
 
 def saved_speed_ceiling(recording):
-    """Read only this run's saved profile, never today's potentially changed settings."""
+    """Read the speed ceiling from this recording's saved configuration.
+
+    Return None if the snapshot is absent; using today's YAML could mislabel an older run.
+    """
     profile = recording.parent / "config" / "avlite.yaml"
     if not profile.exists():
         return None
@@ -419,7 +482,11 @@ def saved_speed_ceiling(recording):
 
 
 def plot_planned_report(rows, artifact, output):
-    """Compare the executed path and speeds in closed-track distance coordinates."""
+    """Compare the saved racing line with measured path, speed and tracking error.
+
+    Plot speed against distance around the lap so repeated laps share the same reference.
+    Separate time plots show path deviation and the active speed-limiting reason.
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -464,6 +531,11 @@ def plot_planned_report(rows, artifact, output):
 
 
 def main():
+    """Export a telemetry file to CSV and the plots supported by its saved data.
+
+    Always produce the overview, optionally add the lap report, and add control/planned
+    reports when their diagnostics or plan artifact are available.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("recording", type=Path, help="JSONL file produced by record_lap")
     parser.add_argument("--title", help="Run label above the six-panel debugging graph")

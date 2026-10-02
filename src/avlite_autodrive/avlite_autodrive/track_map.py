@@ -20,6 +20,11 @@ class TrackMap:
     LIDAR_OFFSET_M = (0.2733, 0.0, 0.096)
 
     def __init__(self, *, max_cells=100_000, buffer_size=32):
+        """Create bounded queues for matching scans to poses and a grid for unique world hits.
+
+        Limits control memory use; diagnostic counters explain dropped scans and truncated
+        output. The collected points are a visual outline, not an occupancy map.
+        """
         if max_cells < 1 or buffer_size < 1:
             raise ValueError("map and synchronization buffer limits must be positive")
         self.max_cells = max_cells
@@ -46,6 +51,7 @@ class TrackMap:
 
     @staticmethod
     def _stamp(msg):
+        """Read a positive ROS header timestamp as integer nanoseconds, or return None."""
         try:
             stamp = msg.header.stamp
             if not (isinstance(stamp.sec, int) and isinstance(stamp.nanosec, int)):
@@ -58,6 +64,11 @@ class TrackMap:
             return None
 
     def _advance_time(self, received_s, kind):
+        """Discard sensor samples that are too old to pair with fresh data.
+
+        received_s is local monotonic time. Return whether this new sample is recent enough
+        and count rejected scans for the final report.
+        """
         if not math.isfinite(received_s):
             self._rejections[kind + "_invalid_receive_time"] += 1
             return False
@@ -74,6 +85,11 @@ class TrackMap:
         return True
 
     def _valid_stamp(self, msg, kind):
+        """Reject malformed, duplicate or out-of-order stamps for one sensor stream.
+
+        The reset timestamp floor also prevents data from before a reset from re-entering
+        the pairing queues.
+        """
         stamp = self._stamp(msg)
         if stamp is None:
             self._rejections[kind + "_invalid_stamp"] += 1
@@ -86,7 +102,11 @@ class TrackMap:
         return stamp
 
     def add_odometry(self, msg, received_s):
-        """Offer world -> rear-axle odometry with local monotonic receive time."""
+        """Queue a valid world-to-rear-axle pose and try to match waiting scans.
+
+        Check frame names, timestamps and pose values first. A pose jump clears pending
+        pairings while preserving hits already stored in world coordinates.
+        """
         self._odometry_received += 1
         if not self._advance_time(received_s, "odom"):
             return
@@ -115,7 +135,11 @@ class TrackMap:
         self._match()
 
     def add_scan(self, msg, received_s):
-        """Offer a LiDAR scan; no-return values never become plotted walls."""
+        """Queue finite LiDAR hits and try to pair the scan with a recent pose.
+
+        Check scan geometry and the lidar frame. Readings with no return are excluded, so
+        maximum sensor range does not appear as a wall in the plot.
+        """
         self._scans_received += 1
         if not self._advance_time(received_s, "scan"):
             return
@@ -147,6 +171,12 @@ class TrackMap:
         self._match()
 
     def _match(self):
+        """Pair each pending scan with its nearest acceptable odometry timestamp.
+
+        Wait until pose data reaches the scan time, enforce timing/rate limits, then apply
+        the LiDAR mounting offset and vehicle heading to obtain world x/y. Keep one point
+        per grid cell to limit repeated hits and memory use.
+        """
         while self._scans and self._odometry:
             stamp, received_s, hits = self._scans[0]
             # Wait for an odometry timestamp to reach the scan before choosing
@@ -194,6 +224,10 @@ class TrackMap:
                         self._truncated = True
 
     def _clear_sync(self, stamp_floor_ns):
+        """Drop pending scans and poses and prevent pre-reset timestamps from being reused.
+
+        Keep the accumulated world points, but record that synchronization was reset.
+        """
         self._rejections["scan_reset_discarded"] += len(self._scans)
         self._scans.clear()
         self._odometry.clear()
@@ -204,11 +238,15 @@ class TrackMap:
         self._reset_count += 1
 
     def reset(self):
-        """Clear pairing history after a reset; preserve observed world hits."""
+        """Clear scan/pose pairing after a reset while preserving the observed world outline."""
         self._clear_sync(self._highest_stamp_ns)
 
     def snapshot(self):
-        """Return JSON-safe points and enough provenance to label the outline."""
+        """Return a JSON-ready outline with counts, timing assumptions and limitations.
+
+        Include rejection reasons and truncation status so plots and map preparation can
+        judge whether the recorded outline is complete enough to use.
+        """
         return {
             "version": 1,
             "frame_id": "world",

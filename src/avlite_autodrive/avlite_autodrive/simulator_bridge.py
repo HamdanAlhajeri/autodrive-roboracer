@@ -9,17 +9,28 @@ class CommandExpiry:
     """Final simulator output gate, independent of ROS timers and the actuator loop."""
 
     def __init__(self, timeout=0.5, clock=time.monotonic):
+        """Create a final command watchdog with a monotonic clock and a lock.
+
+        Both throttle and steering must receive fresh updates before a simulator reply can
+        contain their stored values.
+        """
         self.timeout, self.clock = timeout, clock
         self.lock = threading.Lock()
         self.received = {}
         self.values = {}
 
     def invalidate(self):
+        """Forget both commands so the next simulator reply sends zero output."""
         with self.lock:
             self.received.clear()
             self.values.clear()
 
     def receive(self, axis, value):
+        """Store a valid normalized command and its receive time for one axis.
+
+        Round accepted values to the simulator's command precision. An invalid value clears
+        both axes and returns False.
+        """
         with self.lock:
             if not math.isfinite(value) or not -1 <= value <= 1:
                 self.received.clear()
@@ -30,6 +41,11 @@ class CommandExpiry:
             return True
 
     def gate(self, payload):
+        """Copy a simulator reply and replace its throttle/steering with fresh values or zeros.
+
+        Perform the age check when sending, not just when receiving ROS messages. This also
+        catches a delayed bridge callback.
+        """
         with self.lock:
             now = self.clock()
             fresh = all(axis in self.received and 0 <= now - self.received[axis] <= self.timeout
@@ -41,10 +57,10 @@ class CommandExpiry:
 
 
 def install_command_expiry(stock, clock=time.monotonic):
-    """Install before stock.main creates subscriptions; gate at the final socket emit.
+    """Wrap the stock bridge callbacks and final socket output with command expiry checks.
 
-    Both axis callbacks must be fresh. Reconnect/reset invalidates earlier commands.
-    Applying expiry at emit time also covers slow camera decoding in stock.bridge.
+    Install these wrappers before stock.main() creates ROS subscriptions. Resets and
+    connection changes clear command history; each outgoing reply checks both axes again.
     """
     guard = CommandExpiry(clock=clock)
     for axis in ("throttle", "steering"):
@@ -52,6 +68,12 @@ def install_command_expiry(stock, clock=time.monotonic):
         original = getattr(stock, name)
 
         def callback(msg, axis=axis, original=original):
+            """Timestamp one incoming actuator value and pass valid data to its original
+            callback.
+
+            Default arguments capture the current axis and callback separately for each loop
+            iteration.
+            """
             value = float(msg.data)
             if guard.receive(axis, value):
                 original(msg)
@@ -61,6 +83,7 @@ def install_command_expiry(stock, clock=time.monotonic):
     reset = stock.callback_reset_command
 
     def reset_callback(msg):
+        """Clear command history for a requested reset, then run the stock reset callback."""
         if msg.data:
             guard.invalidate()
         reset(msg)
@@ -69,6 +92,9 @@ def install_command_expiry(stock, clock=time.monotonic):
     emit = stock.sio.emit
 
     def guarded_emit(event, data=None, *args, **kwargs):
+        """Apply the watchdog to vehicle command replies while forwarding other socket events
+        unchanged.
+        """
         if event == "Bridge" and isinstance(data, dict) and "V1 Throttle" in data:
             data = guard.gate(data)
         return emit(event, data, *args, **kwargs)
@@ -78,11 +104,15 @@ def install_command_expiry(stock, clock=time.monotonic):
 
     @stock.sio.on("connect")
     def connected(sid, environ):
+        """Discard commands from a previous connection before running the stock connection
+        handler.
+        """
         guard.invalidate()
         return connect(sid, environ)
 
     @stock.sio.on("disconnect")
     def disconnected(sid, *args):
+        """Invalidate actuator commands when the simulator disconnects."""
         guard.invalidate()
 
     return guard
@@ -111,10 +141,20 @@ REQUIRED_FIELDS = frozenset(
 
 
 def install_startup_guard(stock, command_guard=None):
+    """Wrap the stock sensor handler so incomplete startup packets still receive a reply.
+
+    Unity waits for each reply before sending another frame. Returning stopped controls
+    keeps this handshake moving until a complete sensor packet arrives.
+    """
     original = stock.bridge
 
     @stock.sio.on("Bridge")
     def guarded_bridge(sid, data):
+        """Reply with zero controls to an incomplete packet; otherwise call the stock bridge.
+
+        Also clear command history so an old throttle value cannot survive an incomplete
+        sensor frame.
+        """
         if not isinstance(data, dict) or not REQUIRED_FIELDS.issubset(data):
             if command_guard is not None:
                 command_guard.invalidate()
@@ -137,6 +177,7 @@ def install_startup_guard(stock, command_guard=None):
 
 
 def main():
+    """Install the startup and command-expiry wrappers, then launch the stock AutoDRIVE API."""
     from autodrive_roboracer import autodrive_bridge as stock
 
     guard = install_command_expiry(stock)

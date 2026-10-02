@@ -9,17 +9,28 @@ import numpy as np
 
 
 def number(row, name):
+    """Read a finite numeric field as a float, returning NaN for missing or invalid data."""
     value = row.get(name)
     return float(value) if isinstance(value, (int, float)) and math.isfinite(value) else math.nan
 
 
 def fresh(row):
+    """Require recent odometry, actuator command/feedback and controller diagnostics.
+
+    The 0.15-second limit keeps delayed values out of the coast fit.
+    """
     return all(0 <= number(row, key + "_age_s") <= 0.15 for key in (
         "odom", "throttle_command", "throttle", "steering", "steering_command",
         "controller_diagnostics"))
 
 
 def fit_coast(rows):
+    """Fit speed against monotonic receive time for one continuous zero-throttle interval.
+
+    Require enough fresh samples, a clear speed decrease and consistent timing. Compare
+    travelled position with integrated speed to detect simulator/receive-clock mismatch.
+    Return (fit, None) when accepted, or (None, reason) when rejected.
+    """
     if len(rows) < 4:
         return None, "fewer than four fresh, zero-throttle samples"
     t = np.array([r["odom_received_monotonic_s"] for r in rows])
@@ -64,7 +75,13 @@ def fit_coast(rows):
 
 
 def analyze_response(rows, summary, expected_trials=3):
-    """Never combine fragments of one coast or qualify a partial/legacy capture."""
+    """Decide whether a complete guided response run supports a braking estimate.
+
+    Check run status and sample ordering, then fit separate fresh, nearly straight coast
+    fragments. Count at most one fit per trial and use the most conservative accepted slope
+    bound. Only a qualified set of independent trials produces a suggested braking value;
+    this does not edit settings.
+    """
     run_errors = []
     if (summary.get("status") != "completed" or not summary.get("clean_run")
             or summary.get("stop_reason") != "lap_target"
@@ -173,6 +190,12 @@ def analyze_response(rows, summary, expected_trials=3):
 
 
 def main():
+    """Read a recording folder and write the response qualification report and graph.
+
+    Use its saved effective configuration to determine the requested trial count. Missing or
+    truncated inputs prevent qualification but still produce a report explaining the
+    problem.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
     args = parser.parse_args()
@@ -191,6 +214,7 @@ def main():
                 break
 
     def load_snapshot(name):
+        """Load one saved JSON object, recording an input error if it is missing or malformed."""
         try:
             data = json.loads((directory / name).read_text())
             if not isinstance(data, dict):

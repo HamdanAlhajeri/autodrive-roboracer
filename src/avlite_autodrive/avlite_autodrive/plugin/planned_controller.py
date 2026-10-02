@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import math
 
 import numpy as np
+from scipy.spatial import cKDTree
 from avlite.c30_control.c31_control_model import ControlCommand
 from avlite.c30_control.c35_pure_pursuit import PurePursuitController
 from avlite.c50_common.c51_capabilities import StackCapability, WorldCapability
@@ -20,6 +21,32 @@ LIMIT_REASONS = {
 }
 
 
+def swept_hit_distance(hits, xy, directions, distance, wheelbase, radius):
+    """Find the first sampled distance where the vehicle footprint touches a LiDAR hit.
+
+    xy and directions describe rear-axle poses along the path; distance gives their travel
+    distances in metres. Model the car as an axle segment surrounded by a radius. A spatial
+    index removes distant points before exact checks. Return infinity if no sampled
+    footprint is blocked.
+    """
+    if not len(hits):
+        return math.inf
+    # Every capsule fits in this ball about its axle midpoint. Filtering by the
+    # ball therefore cannot discard a hit on either end cap or the axle segment.
+    centers = xy + 0.5 * wheelbase * directions
+    nearby = cKDTree(hits).query_ball_point(centers, 0.5 * wheelbase + radius + 1e-9)
+    pose_ids = np.repeat(np.arange(len(xy)), [len(group) for group in nearby])
+    if not len(pose_ids):
+        return math.inf
+    hit_ids = np.concatenate(nearby).astype(np.intp)
+    offset = hits[hit_ids] - xy[pose_ids]
+    unit = directions[pose_ids]
+    along = np.clip(np.sum(offset * unit, axis=1), 0, wheelbase)
+    separation = offset - along[:, None] * unit
+    blocked = np.sum(separation**2, axis=1) <= radius**2
+    return float(np.min(distance[pose_ids[blocked]])) if np.any(blocked) else math.inf
+
+
 @dataclass
 class AutoDRIVESensorFrame(SensorFrame):
     lidar_hit_mask: object = None
@@ -32,6 +59,7 @@ class AutoDRIVEPlannedController(PurePursuitController):
     stack_requirements = frozenset({StackCapability.LOCAL_PLAN, StackCapability.LOCALIZATION})
 
     def __init__(self, prepared, **kwargs):
+        """Attach the validated map, closed path and planning limits to AVLite Pure Pursuit."""
         super().__init__(**kwargs)
         self.prepared = prepared
         self.path = prepared.path
@@ -39,6 +67,10 @@ class AutoDRIVEPlannedController(PurePursuitController):
         self.reset()
 
     def reset(self):
+        """Clear path progress, the speed target and upstream controller memory.
+
+        Mark the plan unconfirmed until a later control update passes its checks.
+        """
         super().reset()
         self._s = None
         self._target_speed = 0.0
@@ -46,6 +78,11 @@ class AutoDRIVEPlannedController(PurePursuitController):
                             "speed_limit_reason": 6, "plan_valid": 0}
 
     def stop_command(self, reason):
+        """Return straight steering and a deceleration request after a failed check.
+
+        The numeric reason is saved for telemetry. Reset upstream control memory and path
+        progress so recovery does not reuse an old tracking state.
+        """
         super().reset()
         self._s = None
         self.diagnostics.update(target_velocity_mps=0.0, speed_limit_reason=reason,
@@ -54,6 +91,11 @@ class AutoDRIVEPlannedController(PurePursuitController):
         return self.cmd
 
     def find_path_lookahead(self, ego, ld):
+        """Locate the car on the loop and return a lookahead point in the car frame.
+
+        ld is a distance in metres. ClosedPath.at() wraps across the finish line, so the
+        target can lie in the next lap without clamping to the last waypoint.
+        """
         s, cte, index = self.path.project([ego.x, ego.y])
         self._s = s
         self.tj.current_wp = index
@@ -65,11 +107,17 @@ class AutoDRIVEPlannedController(PurePursuitController):
                 float(-sn * target[0] + c * target[1]))
 
     def steer_to_ego_target(self, target_ego_xy, ld):
+        """Calculate Pure Pursuit steering using the actual distance to the local target."""
         return super().steer_to_ego_target(target_ego_xy, math.hypot(*target_ego_xy))
 
     def velocity_pid(self, ego, target_velocity):
         # The closed-path profile is interpolated at the actual position, including
         # the seam. Upstream's nearest open-path waypoint value is intentionally unused.
+        """Track the speed target already limited by the closed-path and obstacle checks.
+
+        Ignore the upstream waypoint target in favour of our interpolated value. When
+        measured speed is above it, request at least the configured deceleration.
+        """
         target = self._target_speed
         acc = super().velocity_pid(ego, target)
         if ego.velocity > target + 0.05:
@@ -77,6 +125,12 @@ class AutoDRIVEPlannedController(PurePursuitController):
         return float(acc)
 
     def obstacle_distance(self, ego, sensors, steer, s):
+        """Check how far the car can travel before a measured LiDAR hit enters its footprint.
+
+        Transform hits into world coordinates, then sample the curved reference path and the
+        car's current steering arc during reaction time. Ignore valid no-return beams.
+        Return clearance in metres, or infinity when these checks find no hit.
+        """
         mask = np.asarray(sensors.lidar_hit_mask, dtype=bool)
         hits = sensors.lidar_sensor.to_map(sensors.lidar[mask], ego)[:, :2]
         if len(hits) == 0:
@@ -105,14 +159,17 @@ class AutoDRIVEPlannedController(PurePursuitController):
         distance = np.r_[distance, arc_distance]
         # Distance of each hit to each rear-to-front-axle segment. Add half the
         # sampling step to the disk radius so discrete poses don't miss a contact.
-        offset = hits[:, None, :] - xy[None, :, :]
-        along = np.clip(np.sum(offset * directions[None, :, :], axis=2), 0, st.wheelbase_m)
-        separation = offset - along[:, :, None] * directions[None, :, :]
-        blocked = np.any(np.sum(separation**2, axis=2)
-                         <= (st.envelope_radius + 0.025)**2, axis=0)
-        return float(np.min(distance[blocked])) if np.any(blocked) else math.inf
+        return swept_hit_distance(hits, xy, directions, distance, st.wheelbase_m,
+                                  st.envelope_radius + 0.025)
 
     def control(self, ego, plan=None, control_dt=None, perception_model=None, sensors=None):
+        """Validate inputs, follow the closed path and choose the final speed target.
+
+        First require a matching plan, fresh sensors and a correctly oriented pose inside
+        the track. Then take the lowest of the effective speed ceiling, upcoming planned
+        speed and obstacle stopping limit. Pure Pursuit produces steering and acceleration,
+        while diagnostics record why speed was limited.
+        """
         self.diagnostics = {"planned_mode": 1, "plan_valid": 1,
                             "planned_speed_mps": 0.0, "target_velocity_mps": 0.0,
                             "speed_limit_reason": 0, "obstacle_speed_limit_mps": None,
@@ -148,6 +205,8 @@ class AutoDRIVEPlannedController(PurePursuitController):
             s + preview, self.prepared.global_plan.velocity)))
         obstacle_limit = st.speed_limit
         if math.isfinite(clearance):
+            # Solve stopping distance = v*reaction_time + v^2/(2*braking)
+            # for v. The margin leaves some distance before the detected hit.
             distance = max(0, clearance - st.clearance_margin_m)
             braking = st.braking_deceleration_mps2
             bt = braking * st.reaction_time_s

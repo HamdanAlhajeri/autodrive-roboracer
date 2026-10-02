@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from avlite_autodrive.sensors import scan_cloud
-from avlite_autodrive.ros_utils import odom_state, valid_scan
+from avlite_autodrive.ros_utils import odom_state, pose_discontinuous, valid_scan
 
 
 def scan(ranges, angle_min=-math.pi / 2, increment=math.pi / 2):
@@ -48,3 +48,16 @@ def test_odometry_does_not_rotate_body_velocity_twice():
     msg.pose.pose.orientation.w = 0
     with pytest.raises(ValueError):
         odom_state(msg)
+
+
+@pytest.mark.parametrize("speed,dt,distance,reset", [
+    (12.0, 0.1, 1.2, False),  # A normal 10 Hz update must not look like a reset.
+    (12.0, 0.2, 2.4, False),  # One dropped update, still within the watchdog.
+    (12.0, 0.1, 3.0, True),  # More displacement than velocity/time explain.
+    (0.0, 0.1, 1.1, True),   # Preserve low-speed teleport detection.
+    (12.0, 0.51, 0.1, True),  # Stale feedback still breaks continuity.
+    (12.0, -0.1, 0.1, True),
+])
+def test_pose_continuity_accounts_for_speed_and_time(speed, dt, distance, reset):
+    assert pose_discontinuous((0.0, 0.0, speed, 10.0),
+                              (distance, 0.0, speed, 10.0 + dt)) is reset
