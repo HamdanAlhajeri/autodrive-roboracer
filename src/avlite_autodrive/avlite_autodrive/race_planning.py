@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 from scipy.spatial import cKDTree
+from shapely.geometry import LineString, Polygon
 from avlite.c10_perception.c11_perception_model import RaceMap
 from avlite.c20_planning.c25_global_race_planners import GlobalRacePlanner
 
@@ -31,15 +32,24 @@ class PlanningConfig:
     wheelbase_m: float = 0.324
     curvature_weight: float = 0.75
     optimization_iterations: int = 3
+    optimization_step_limit_m: float | None = None
 
     @classmethod
     def from_config(cls, config):
+        """Read the planning section and check it against the resolved controller settings.
+
+        Reject invalid numbers and mismatched speed, acceleration or wheelbase limits before
+        planning. Small-car sampling and uncalibrated commissioning limits are checked here
+        too.
+        """
         values = dict(config.get("planning", {}))
         control = config["c30_control"]
         values.setdefault("max_velocity_mps", control["c32_ego_max_velocity"])
         settings = cls(**values)
         for key, value in asdict(settings).items():
             if key in ("map_path", "braking_calibrated"):
+                continue
+            if key == "optimization_step_limit_m" and value is None:
                 continue
             if (isinstance(value, bool) or not isinstance(value, (int, float))
                     or not math.isfinite(value) or value <= 0):
@@ -65,11 +75,17 @@ class PlanningConfig:
 
     @property
     def speed_limit(self):
+        """Return the effective ceiling in m/s after applying any commissioning cap.
+
+        A larger shared speed setting cannot bypass the lower cap while braking remains
+        uncalibrated.
+        """
         return (self.max_velocity_mps if self.braking_calibrated else
                 min(self.max_velocity_mps, self.commissioning_speed_mps))
 
     @property
     def envelope_radius(self):
+        """Add the tracking allowance to the physical vehicle radius for clearance checks."""
         return self.vehicle_radius_m + self.tracking_allowance_m
 
 
@@ -78,8 +94,17 @@ class AutoDRIVERacePlanner(GlobalRacePlanner):
 
     RESAMPLE_STEP = 0.1
 
-    def __init__(self, race_map, settings):
+    def __init__(self, race_map, settings, reference_path=None):
+        """Configure AVLite's race optimizer for this small vehicle and track.
+
+        Pass the effective speed and acceleration limits upstream, use finer waypoint
+        spacing, and leave room for the axle sweep. The optional reference route helps
+        initialize concave tracks.
+        """
         self.RESAMPLE_STEP = settings.sample_spacing_m
+        self.reference_path = reference_path
+        self.step_limit = settings.optimization_step_limit_m
+        self._seed_pending = False
         # Give the optimizer some front-axle sweep allowance. Full capsule
         # containment is independently validated; this inset is not a guarantee.
         margin = settings.envelope_radius + settings.wheelbase_m / 4
@@ -92,6 +117,69 @@ class AutoDRIVERacePlanner(GlobalRacePlanner):
             optimization_iterations=settings.optimization_iterations, margin=margin,
         )
 
+    def plan(self, *args, **kwargs):
+        """Run the upstream planner with a fresh optional seed for this planning call.
+
+        Clear the seed flag even if optimization fails, so a later call cannot reuse partial
+        state.
+        """
+        self._seed_pending = self.reference_path is not None
+        try:
+            return super().plan(*args, **kwargs)
+        finally:
+            self._seed_pending = False
+
+    def _resample(self, points, step, closed):
+        # The pinned upstream planner first resamples the boundary midpoint,
+        # then each optimization result. Replace only that initial reference.
+        """Substitute the supplied seed only for the optimizer's first reference path.
+
+        All later resampling uses the newly optimized path and the upstream interpolation
+        algorithm.
+        """
+        if self._seed_pending:
+            points = self.reference_path
+            self._seed_pending = False
+        return super()._resample(points, step, closed)
+
+    def _solve_offsets(self, ref, normals, lb, ub, weight, closed):
+        """Optionally limit each optimization step before calling the upstream solver.
+
+        Intersect the allowed lateral shifts with the track boundaries. Small steps reduce
+        folded paths in concave sections; an empty allowed interval means the reference
+        needs revision.
+        """
+        if self.step_limit is not None:
+            # Large lateral steps can fold normals in a wide, concave corridor.
+            # Intersect the trust region with the physical boundary constraints.
+            lb = np.maximum(lb, -self.step_limit)
+            ub = np.minimum(ub, self.step_limit)
+            if np.any(lb >= ub):
+                raise ValueError("Reference route leaves the optimizer step region; revise the map")
+        return super()._solve_offsets(ref, normals, lb, ub, weight, closed)
+
+
+def reference_seed(data, left, right, corridor):
+    """Validate an optional initial route and return its x/y points.
+
+    The route must make a complete loop around the inner island, stay inside the corridor,
+    and follow the boundary direction. Return None when the map provides no custom seed.
+    """
+    if "ReferencePath" not in data:
+        return None
+    seed = ClosedPath(data["ReferencePath"])
+    ring = Polygon(seed.points)
+    closed_line = LineString(np.vstack([seed.points, seed.points[0]]))
+    inner = min((Polygon(left), Polygon(right)), key=lambda p: p.area)
+    if (not ring.is_valid or not ring.contains(inner)
+            or not corridor.buffer(1e-8).covers(closed_line)
+            or np.max(seed.ds) > 0.5):
+        raise ValueError("ReferencePath must be a complete, simple route inside the corridor")
+    midpoint_ring = Polygon((left + right) / 2)
+    if ring.exterior.is_ccw != midpoint_ring.exterior.is_ccw:
+        raise ValueError("ReferencePath direction disagrees with the map boundaries")
+    return seed.points
+
 
 @dataclass
 class PreparedPlan:
@@ -103,10 +191,21 @@ class PreparedPlan:
     artifact: dict
 
     def save(self, filename):
+        """Write the validated plan, embedded map and resolved settings to a JSON artifact."""
         Path(filename).write_text(json.dumps(self.artifact, indent=2, allow_nan=False) + "\n")
 
 
 def prepare_plan(config, config_path):
+    """Generate a global racing line and reject plans the configured car cannot follow.
+
+    Resolve the map relative to the YAML file, validate its geometry, then check speed,
+    steering, lateral acceleration and acceleration/braking across every segment, including
+    the lap boundary. Sweep the vehicle footprint between waypoints to check walls and
+    recorded hits.
+
+    Return a PreparedPlan containing the live planner objects and a reproducible JSON
+    artifact. This work runs before driving, outside the 20 Hz control loop.
+    """
     settings = PlanningConfig.from_config(config)
     source = Path(settings.map_path)
     if not source.is_absolute():
@@ -119,9 +218,13 @@ def prepare_plan(config, config_path):
                        left_bound=np.vstack([left, left[0]]),
                        right_bound=np.vstack([right, right[0]]),
                        _reference_point=tuple(data["ReferencePoint"]))
-    planner = AutoDRIVERacePlanner(race_map, settings)
+    planner = AutoDRIVERacePlanner(race_map, settings, reference_seed(data, left, right, corridor))
     plan = planner.plan()
     path = ClosedPath(plan.path)
+    path_ring = Polygon(path.points)
+    inner = min((Polygon(left), Polygon(right)), key=lambda p: p.area)
+    if not path_ring.is_valid or not path_ring.contains(inner):
+        raise ValueError("Planned route must be simple and complete a lap around the island")
     velocity = np.asarray(plan.velocity)
     curvature = planner._curvature(path.points, True)
     if (velocity.shape != (len(path.points),) or not np.isfinite(velocity).all()
@@ -135,6 +238,8 @@ def prepare_plan(config, config_path):
                          f"{max_curvature:.3f}; revise the map")
     if np.any(velocity**2 * curvature > settings.lateral_acceleration_mps2 + 1e-5):
         raise ValueError("Planner violated lateral acceleration limits")
+    # v_next^2 - v_now^2 = 2*a*distance. Rolling the array also checks braking
+    # from the last waypoint back to the first, where the next lap begins.
     dv2 = np.roll(velocity, -1)**2 - velocity**2
     if (np.any(dv2 > 2 * settings.acceleration_mps2 * path.ds + 1e-5)
             or np.any(-dv2 > 2 * settings.braking_deceleration_mps2 * path.ds + 1e-5)):

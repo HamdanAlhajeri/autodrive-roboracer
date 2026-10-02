@@ -13,6 +13,11 @@ from .plot_recording import read_samples, track_map_points
 
 
 def xy_array(value, name, minimum=3):
+    """Convert input into an N-by-2 array of finite x/y coordinates.
+
+    Use name in any validation error so a bad boundary or path can be identified. Reject
+    malformed arrays and paths with fewer than minimum points.
+    """
     points = np.asarray(value, dtype=float)
     if (points.ndim != 2 or points.shape[1] != 2 or len(points) < minimum
             or not np.isfinite(points).all()):
@@ -24,6 +29,11 @@ class ClosedPath:
     """Periodic segment projection/interpolation including the closing segment."""
 
     def __init__(self, points):
+        """Prepare segment lengths and directions for a closed loop in metres.
+
+        Remove a repeated closing point if present, then include the final-to-first segment
+        explicitly. Reject zero-length segments because projection divides by their lengths.
+        """
         self.points = xy_array(points, "path")
         if np.linalg.norm(self.points[0] - self.points[-1]) < 1e-7:
             self.points = self.points[:-1]
@@ -36,6 +46,11 @@ class ClosedPath:
         self.tangents = self.delta / self.ds[:, None]
 
     def at(self, distance):
+        """Interpolate x/y positions at one or more distances around the loop.
+
+        Distances wrap modulo the lap length, including negative distances and lookahead
+        points beyond the finish line.
+        """
         distance = np.asarray(distance) % self.length
         index = np.minimum(np.searchsorted(self.s, distance, side="right") - 1,
                            len(self.points) - 1)
@@ -43,6 +58,13 @@ class ClosedPath:
         return self.points[index] + self.delta[index] * np.expand_dims(fraction, -1)
 
     def project(self, point):
+        """Find the nearest point on any path segment to a world x/y position.
+
+        Return distance around the lap, signed sideways error in metres, and the segment
+        index. Positive error means the point is to the left of the path's direction.
+        """
+        # Test every segment: the dot product finds where the point falls along
+        # it, and clipping keeps that candidate between the two segment ends.
         offset = np.asarray(point) - self.points
         fraction = np.clip(np.sum(offset * self.delta, axis=1) / self.ds**2, 0, 1)
         candidates = self.points + fraction[:, None] * self.delta
@@ -54,12 +76,22 @@ class ClosedPath:
 
     def velocity_at(self, distance, velocity):
         # Interpolate squared speeds: preserves constant-acceleration bounds.
+        """Interpolate the speed profile at one or more wrapped path distances.
+
+        Interpolate squared speed rather than speed itself because v^2 changes linearly with
+        distance under constant acceleration. This also handles the closing segment.
+        """
         v = np.asarray(velocity, dtype=float)
         return np.sqrt(np.interp(np.asarray(distance) % self.length,
                                  self.s, np.r_[v**2, v[0]**2]))
 
 
 def corridor_polygon(left, right):
+    """Build the drivable ring between two simple, nested track boundaries.
+
+    Choose the outer boundary by area and represent the inner island as a hole. Raise
+    ValueError if boundaries cross, are degenerate, or do not contain one another.
+    """
     a, b = Polygon(left), Polygon(right)
     if not a.is_valid or not b.is_valid or a.area == 0 or b.area == 0:
         raise ValueError("Track boundaries must be simple closed rings")
@@ -70,6 +102,12 @@ def corridor_polygon(left, right):
 
 
 def validate_map(data, radius=0.24, allowance=0.05):
+    """Check map units, boundary pairing, driving direction and usable track width.
+
+    The paired midpoint path must stay inside the corridor with no large sampling gaps.
+    Return validated left/right arrays and the corridor polygon; full vehicle clearance
+    along a racing line is checked later.
+    """
     if not isinstance(data, dict):
         raise ValueError("RaceMap must be an object")
     if data.get("frame_id", "world") != "world" or data.get("units", "m") != "m":
@@ -100,12 +138,21 @@ def validate_map(data, radius=0.24, allowance=0.05):
 
 
 def footprint(xy, heading, wheelbase=0.324, radius=0.29):
+    """Represent the car as a rear-to-front axle segment expanded by a radius.
+
+    xy is the rear axle in world metres and heading is in radians. The rounded shape
+    includes vehicle width and the configured tracking allowance.
+    """
     front = np.asarray(xy) + wheelbase * np.array([np.cos(heading), np.sin(heading)])
     return LineString([xy, front]).buffer(radius)
 
 
 def clean_lap(rows):
-    """Select a full lap between two observed crossings, never a partial first lap."""
+    """Select one full recorded lap between two consecutive finish crossings.
+
+    Require unchanged collision/reset counters, fresh telemetry and a closed, well-sampled
+    trajectory. Return world x/y positions with repeated stationary points removed.
+    """
     for key in ("collision_count", "resets"):
         values = [r.get(key) for r in rows]
         if any(v is None for v in values) or max(values) != min(values):
@@ -136,6 +183,12 @@ def clean_lap(rows):
 
 
 def build_map(rows, outline, spacing=0.1):
+    """Estimate paired track boundaries from a clean driven lap and observed LiDAR hits.
+
+    Resample the driven route, then look sideways along its normals for each wall. Fill only
+    small observation gaps and smooth measurement noise before validating the resulting
+    RaceMap. This uses simulator ground truth, not independent SLAM.
+    """
     trace = clean_lap(rows)
     hits = xy_array(track_map_points(outline), "LiDAR outline")
     if outline.get("truncated") or outline.get("reset_count", 0):
@@ -183,6 +236,11 @@ def build_map(rows, outline, spacing=0.1):
 
 
 def plot_map(data, output, plan=None):
+    """Save a world-coordinate overlay of boundaries, recorded driving and an optional plan.
+
+    Colour the proposed racing line by planned speed when it is supplied. Use a
+    noninteractive plotting backend so the command works inside Docker.
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -212,6 +270,11 @@ def plot_map(data, output, plan=None):
 
 
 def main():
+    """Convert a saved recording and LiDAR outline into a RaceMap JSON file and preview.
+
+    Record the source file hash for traceability. If a control profile is supplied, also
+    generate and validate a plan and add it to the preview.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("recording", type=Path)
     parser.add_argument("--outline", type=Path)

@@ -1,0 +1,34 @@
+{
+  "file": "sketch_track.obj",
+  "roundtrip_parse_passed": true,
+  "unit_normals": true,
+  "materials": {
+    "Track_Surface": "Asphalt",
+    "Outer_Barrier": "Barrier_Red",
+    "Inner_Barrier": "Barrier_Red"
+  },
+  "objects": {
+    "Track_Surface": {
+      "vertices": 2142,
+      "triangles": 4284,
+      "watertight": true,
+      "consistent_winding": true,
+      "volume_m3": 28.098981
+    },
+    "Outer_Barrier": {
+      "vertices": 11184,
+      "triangles": 22368,
+      "watertight": true,
+      "consistent_winding": true,
+      "volume_m3": 1.489386
+    },
+    "Inner_Barrier": {
+      "vertices": 5952,
+      "triangles": 11904,
+      "watertight": true,
+      "consistent_winding": true,
+      "volume_m3": 0.791615
+    }
+  },
+  "unity_runtime_tested": false
+}
