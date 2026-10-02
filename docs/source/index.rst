@@ -1,6 +1,12 @@
 AutoDRIVE RoboRacer Documentation
 ==================================
 
+.. note::
+
+   This guide covers the original standalone ROS controller. For the current
+   AVLite stack, start with the repository README and docs/commands.md. Run
+   the legacy Compose examples from the repository root.
+
 **AutoDRIVE RoboRacer** is a simulated head-to-head racing platform for the ICRA 2026
 autonomous racing competition. Two Docker containers — a Unity-based simulator and a
 ROS 2 Humble devkit — communicate over a local socket so your algorithm drives a

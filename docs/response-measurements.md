@@ -6,6 +6,16 @@ simulator calibration does not calibrate the real car.
 
 ## Latest result
 
+**Update, 22 September:** `20260922-134928-707-4-laps` completed four clean
+laps at the 2.5 m/s response setting and qualified all three fits. The
+conservative braking suggestion is 3.76 m/s²; displacement/time ratios were
+0.995, 1.035 and 0.995. The new experimental profile uses 3.0 m/s² braking
+and 2.0 m/s² acceleration. This is low-speed response evidence, not calibration
+at 10 m/s. The earlier same-day attempt completed clean laps but rejected all
+fits before the simulator restart. See the [current assessment](validation/high-speed-20260922.md).
+
+### Previous result
+
 **Update, 21 September:** `20260921-155118-140-response-2` completed four clean
 laps and three qualified coast fits, including displacement/time consistency.
 Its conservative suggestion is 3.26 m/s². The prepared 3.0 m/s screening profile
@@ -66,7 +76,7 @@ The implemented workflow requires the practice map and simulator ground-truth
 pose. With Docker and the native simulator connected:
 
 ```powershell
-.\measure-response.ps1 -TargetSpeedMps 1.5 -Trials 3
+.\avlite.ps1 response -TargetSpeedMps 1.5 -Trials 3
 ```
 
 Reset when prompted and leave Connection/Autonomous selected. The script uses
@@ -137,10 +147,10 @@ the recorder rate does not increase the simulator or bridge's actual delivery ra
 Regenerate an existing report without starting the car or editing settings:
 
 ```powershell
-.\measure-response.ps1 -RecordingDirectory .\log\recordings\YOUR-RUN
+.\avlite.ps1 response -RecordingDirectory .\log\recordings\YOUR-RUN
 ```
 
-The older `analyze-braking.ps1` command analyzes ordinary coast intervals.
+The older `avlite.ps1 response -RecordingDirectory <run> -CoastOnly` command analyzes ordinary coast intervals.
 Neither analyzer changes settings automatically.
 
 After updating the bridge source, restart it before recording and restart the
@@ -176,4 +186,4 @@ straight length and corner/braking limits before increasing throttle.
 Before enabling calibrated braking, replace the shared 20 m/s setting with
 **3.0 m/s**, review braking against controller acceleration limits and apply the
 accepted value manually. Screen in 0.5 m/s steps with three clean laps per step.
-Speeds above 5 m/s follow the existing [acceptance milestone](plan-2026-09-21.md).
+Speeds above 5 m/s follow the existing [acceptance milestone](plans/milestone-2026-09-21.md).

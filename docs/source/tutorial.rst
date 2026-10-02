@@ -1,6 +1,12 @@
 Detailed Tutorial
 =================
 
+.. note::
+
+   This guide covers the original standalone ROS controller. For the current
+   AVLite stack, start with the repository README and docs/commands.md. Run
+   the legacy Compose examples from the repository root.
+
 This guide walks through the complete development workflow: understanding the
 architecture, modifying the racing algorithm, testing inside the container, and
 preparing a competition submission.
@@ -15,9 +21,9 @@ preparing a competition submission.
 .. code-block:: text
 
    autodrive-roboracer/
-   ├── docker-compose.yml          # production: both containers auto-start
-   ├── docker-compose.dev.yml      # dev override: interactive shells + test runner
-   ├── run_tests.sh                # one-shot test runner inside devkit container
+   ├── docker/legacy/compose.yml          # production: both containers auto-start
+   ├── docker/legacy/compose.dev.yml      # dev override: interactive shells + test runner
+   ├── scripts/linux/test-legacy.sh                # one-shot test runner inside devkit container
    ├── docker/
    │   └── autodrive_devkit.sh    # competition submission entrypoint
    ├── docs/                       # this documentation (Sphinx)
@@ -271,7 +277,7 @@ Open an interactive devkit shell:
 
 .. code-block:: bash
 
-   docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm devkit
+   docker compose --project-directory . -f docker/legacy/compose.yml -f docker/legacy/compose.dev.yml run --rm devkit
 
 Inside the container, your source files are mounted at
 ``/home/autodrive_devkit/src/my_packages``.
@@ -299,13 +305,13 @@ because ``src/`` is bind-mounted.
 
 .. code-block:: bash
 
-   ./run_tests.sh
+   bash scripts/linux/test-legacy.sh
 
 This is equivalent to:
 
 .. code-block:: bash
 
-   docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm test
+   docker compose --project-directory . -f docker/legacy/compose.yml -f docker/legacy/compose.dev.yml run --rm test
 
 No display or GPU is required for the test run.
 

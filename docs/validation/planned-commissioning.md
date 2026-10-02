@@ -41,4 +41,4 @@ milestone, not the current test suite.
 
 Braking remained uncalibrated; the 1.5 m/s² assumption was provisional.
 Higher-speed acceptance and three fresh ten-lap runs were not completed.
-For current results and remaining work, use the [checklist](../checklist-2026-09-21.md).
+For current results and remaining work, use the [checklist](../plans/checklist-2026-09-21.md).

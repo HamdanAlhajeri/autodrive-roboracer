@@ -1,6 +1,12 @@
 Quick Start Guide
 =================
 
+.. note::
+
+   This guide covers the original standalone ROS controller. For the current
+   AVLite stack, start with the repository README and docs/commands.md. Run
+   the legacy Compose examples from the repository root.
+
 Get the simulator and your racer node running in under 10 minutes.
 
 .. contents:: On this page
@@ -79,7 +85,7 @@ Step 6 — Start both containers
 
 .. code-block:: bash
 
-   docker compose up
+   docker compose --project-directory . -f docker/legacy/compose.yml up
 
 This starts three containers:
 
@@ -143,7 +149,7 @@ Step 8 — Stop everything
 
 .. code-block:: bash
 
-   docker compose down
+   docker compose --project-directory . -f docker/legacy/compose.yml down
 
 Step 9 — Restarting after a reboot
 ------------------------------------
@@ -153,14 +159,14 @@ X11 access is reset on every login. Always run this first:
 .. code-block:: bash
 
    xhost local:root
-   docker compose up
+   docker compose --project-directory . -f docker/legacy/compose.yml up
 
 If the devkit container exited and you want to restart only it without stopping
 the simulator:
 
 .. code-block:: bash
 
-   docker compose up devkit
+   docker compose --project-directory . -f docker/legacy/compose.yml up devkit
 
 Troubleshooting
 ---------------
@@ -173,15 +179,15 @@ Troubleshooting
      - Fix
    * - ``permission denied`` on ``docker ps``
      - Run ``newgrp docker`` or log out and back in after ``sudo usermod -aG docker $USER``
-   * - Devkit not visible in ``docker ps`` after ``docker compose up``
-     - It exited immediately. Check why: ``docker logs autodrive_roboracer_api``. Most likely cause: forgot ``xhost local:root`` before starting, or stale container — run ``docker compose down`` then ``docker compose up`` again
+   * - Devkit not visible in ``docker ps`` after ``docker compose --project-directory . -f docker/legacy/compose.yml up``
+     - It exited immediately. Check why: ``docker logs autodrive_roboracer_api``. Most likely cause: forgot ``xhost local:root`` before starting, or stale container — run ``docker compose --project-directory . -f docker/legacy/compose.yml down`` then ``docker compose --project-directory . -f docker/legacy/compose.yml up`` again
    * - Devkit shows ``ros2: command not found`` in logs
-     - You are running an old version of ``docker-compose.yml``. Pull the latest from git — the entrypoint now sources ``/opt/ros/humble/setup.bash`` before launching
+     - You are running an old version of ``docker/legacy/compose.yml``. Pull the latest from git — the entrypoint now sources ``/opt/ros/humble/setup.bash`` before launching
    * - Simulator window does not open
      - Run ``xhost local:root`` before starting the containers
    * - *"Connected!"* never appears in simulator
-     - Confirm both containers use ``network_mode: host`` (already set in ``docker-compose.yml``). Check ``docker logs autodrive_roboracer_api`` for bridge errors
+     - Confirm both containers use ``network_mode: host`` (already set in ``docker/legacy/compose.yml``). Check ``docker logs autodrive_roboracer_api`` for bridge errors
    * - ``nvidia-smi`` not found in container
      - NVIDIA drivers not installed — run ``sudo ubuntu-drivers autoinstall`` and reboot
    * - Container name already in use
-     - Run ``docker compose down`` to clear all containers, then ``docker compose up``
+     - Run ``docker compose --project-directory . -f docker/legacy/compose.yml down`` to clear all containers, then ``docker compose --project-directory . -f docker/legacy/compose.yml up``

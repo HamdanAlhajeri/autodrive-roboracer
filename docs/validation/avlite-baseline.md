@@ -2,13 +2,13 @@
 
 AVLite completed a clean lap in the AutoDRIVE GPU simulator. A fresh-start repeat
 confirmed the final low-speed setup without collisions, resets or manual steering.
-This is historical baseline evidence; use the [checklist](checklist-2026-09-21.md)
+This is historical baseline evidence; use the [checklist](../plans/checklist-2026-09-21.md)
 for current progress.
 
-![Measured trajectory and speed](validation/avlite-lap.png)
+![Measured trajectory and speed](avlite-lap.png)
 
-Evidence: [summary](validation/avlite-lap.summary.json) and
-[sampled CSV](validation/avlite-lap.csv). The summary uses every received odometry
+Evidence: [summary](avlite-lap.summary.json) and
+[sampled CSV](avlite-lap.csv). The summary uses every received odometry
 sample; the approximately 10 Hz CSV/plot can differ slightly in integrated distance.
 
 ## Fresh-start result
@@ -31,7 +31,7 @@ T_{\mathrm{first\ driving}}=70.107-5.400=64.707\ \mathrm{s}.
 $$
 
 The recording includes a one-second finish-feedback tail. This first driving
-interval is separate from [rolling lap timing](avlite-setup.md#lap-timing).
+interval is separate from [rolling lap timing](../avlite-setup.md#lap-timing).
 An earlier run also passed: 31.0489 m, no incidents and 0.5032 m/s peak.
 
 ## Environment and checks
@@ -54,7 +54,7 @@ At this milestone, the integration suite passed **23 tests**, including a real
 ROS process test, and the original controller suite passed **9**. Container/ROS
 builds, lint and whitespace checks passed. These are historical counts.
 The process test killed AVLite and confirmed later zero outputs while the
-independent adapter stayed alive. See [test commands](avlite-setup.md#repeatable-tests).
+independent adapter stayed alive. See [test commands](../avlite-setup.md#repeatable-tests).
 
 ## Findings and limits
 

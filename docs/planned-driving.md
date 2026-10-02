@@ -14,16 +14,17 @@ reference-assisted and localization still uses simulator ground truth.
    [driving.yaml](../config/driving.yaml).
 2. Select `driving_mode: planned`, `planning.map_path: maps/practice.json`
    and `braking_calibrated: false`.
-3. Start/connect the Windows simulator, then run:
+3. Select the matching practice simulator as described in the
+   [track selection and rollback guide](sketch-track.md), then start/connect it and run:
 
 ```powershell
-.\record-one-lap.ps1 -Laps 3 -Label planned-2p5
+.\avlite.ps1 laps -Laps 3 -Label planned-2p5
 ```
 
 Reset when prompted. The wrapper records before driving and stops AVLite after
 the requested laps, an incident or timeout. See [recording](avlite-setup.md#recording-a-lap).
 
-The shared ceiling currently on disk is 20 m/s. While uncalibrated, the
+The shared ceiling comes from `config/driving.yaml`. While uncalibrated, the
 additional commissioning limit gives:
 
 $$
@@ -34,9 +35,12 @@ v_{\mathrm{shared}}, & \text{braking calibrated}.
 \end{cases}
 $$
 
-Thus a 20 m/s request still yields a 2.5 m/s planned ceiling. Before enabling
-calibration, replace 20 with the next controlled ceiling, 3.0 m/s.
-Calibration is [still pending](response-measurements.md#latest-result).
+Thus an uncalibrated 12 m/s request still yields a 2.5 m/s planned ceiling.
+The 22 September practice profile used calibrated low-speed braking evidence,
+with a corner/acceleration/braking profile peaking at 5.698 m/s on that map.
+The practice profile has been restored; shared speed and throttle may differ
+from that historical run. Run `.\avlite.ps1 speed` to inspect
+the active files without driving; see the [10+ m/s assessment](validation/high-speed-20260922.md).
 
 ## Prepare a map
 
@@ -49,8 +53,8 @@ For another map, record at least two finish crossings at a repeatable low speed,
 without collisions/resets and with LiDAR outline capture enabled:
 
 ```powershell
-.\record-one-lap.ps1 -Laps 3 -Label mapping -NoOpen
-.\prepare-race-map.ps1 -RecordingDirectory .\log\recordings\YOUR-RUN -Name practice-v2
+.\avlite.ps1 laps -Laps 3 -Label mapping -NoOpen
+.\avlite.ps1 map -RecordingDirectory .\log\recordings\YOUR-RUN -Name practice-v2
 ```
 
 The offline command writes `config/maps/practice-v2.json`, `.plan.json` and
@@ -81,8 +85,9 @@ v_i^2\leq v_{i+1}^2+2b\Delta s.
 $$
 
 The speed ceiling handles straight segments. Longitudinal constraints also
-apply across the lap's closing segment. Initial values are
-$a_{\mathrm{acc}}=1.0$, $a_{\mathrm{lat}}=3.0$, $b=1.5$ m/s²; these are assumptions.
+apply across the lap's closing segment. Current values are
+$a_{\mathrm{acc}}=2.0$, $a_{\mathrm{lat}}=3.0$, $b=3.0$ m/s². Braking evidence
+is limited to low speeds; these values do not establish high-speed capability.
 
 The controller previews the profile and checks LiDAR clearance along the curved
 route and initial steering arc. For usable distance $d$ after the 0.15 m margin:
@@ -137,4 +142,4 @@ Do not run a second controller alongside the first.
 
 The [first commissioning screen](validation/planned-commissioning.md) passed
 three clean laps. Final acceptance remains three fresh ten-lap runs with the
-same profile; see the [checklist](checklist-2026-09-21.md).
+same profile; see the [checklist](plans/checklist-2026-09-21.md).
