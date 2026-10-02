@@ -18,11 +18,16 @@ from std_msgs.msg import Bool, Float32, String
 
 from .actuation import Actuation, Limits
 from .configuration import load_config
-from .ros_utils import PREFIX, odom_state, valid_scan
+from .ros_utils import PREFIX, odom_state, pose_discontinuous, valid_scan
 
 
 class ActuatorAdapter(Node):
     def __init__(self, parameters=None):
+        """Create the ROS subscriptions, actuator publishers and 20 Hz update timer.
+
+        Optional parameters come from the resolved YAML profile. A steady timer lets
+        watchdog checks continue even when the computer's wall clock changes.
+        """
         super().__init__("avlite_actuator_adapter")
         defaults = Limits(**(parameters or {}))
         params = {k: self.declare_parameter(k, v).value for k, v in vars(defaults).items()}
@@ -51,6 +56,11 @@ class ActuatorAdapter(Node):
 
     def on_command(self, msg):
         # Reject delayed/replayed commands even when DDS delivers them just now.
+        """Accept a fresh AVLite steering/acceleration message for the actuator.
+
+        Check the message timestamp before recording its local receive time, so an old
+        command delivered late cannot appear fresh.
+        """
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         age = self.get_clock().now().nanoseconds * 1e-9 - stamp
         if age < -0.1 or age > self.control.limits.timeout:
@@ -61,35 +71,52 @@ class ActuatorAdapter(Node):
         )
 
     def on_odom(self, msg):
+        """Read the car's pose and forward speed from an odometry message.
+
+        A large unexplained pose jump or a sensor interruption clears control history before
+        the new measurement is stored.
+        """
         try:
             x, y, _, speed = odom_state(msg)
         except ValueError:
             self.control.reset()
+            self.previous_pose = None
             return
-        if (
-            self.previous_pose
-            and math.hypot(x - self.previous_pose[0], y - self.previous_pose[1]) > 1.0
-        ):
+        now = time.monotonic()
+        pose = (x, y, speed, now)
+        if pose_discontinuous(self.previous_pose, pose, self.control.limits.timeout):
             self.control.reset()
-        self.previous_pose = (x, y)
-        self.control.receive_speed(speed, time.monotonic())
+        self.previous_pose = pose
+        self.control.receive_speed(speed, now)
 
     def on_scan(self, msg):
+        """Refresh the LiDAR watchdog only when the incoming scan passes validation.
+
+        An invalid scan resets the actuator, preventing continued throttle on unreliable
+        sensor data.
+        """
         if valid_scan(msg):
             self.control.scan_time = time.monotonic()
         else:
             self.control.reset()
 
     def on_reset(self, msg):
+        """Clear control and pose history when the simulator publishes a true reset flag."""
         if msg.data:
             self.control.reset()
             self.previous_pose = None
 
     def publish(self, throttle, steering):
+        """Send normalized throttle and steering as separate ROS Float32 messages."""
         self.throttle.publish(Float32(data=float(throttle)))
         self.steering.publish(Float32(data=float(steering)))
 
     def tick(self):
+        """Run one actuator update and publish its output and diagnostics.
+
+        If another node is publishing actuator commands, send zeros instead of competing
+        with it. Log a status reason only when it changes to keep the output readable.
+        """
         now = time.monotonic()
         dt, self.previous_time = now - self.previous_time, now
         # Refuse competing publishers instead of fighting the legacy controller.
@@ -112,6 +139,11 @@ class ActuatorAdapter(Node):
 
 
 def main(args=None):
+    """Load optional YAML settings and run the actuator until shutdown is requested.
+
+    Keep ROS active during cleanup so a few zero commands can be published before the node
+    is destroyed.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", help="Actuator YAML profile with optional shared_settings")
     options, ros_args = parser.parse_known_args(args)
@@ -124,6 +156,7 @@ def main(args=None):
     stopped = False
 
     def stop(*_):
+        """Ask the main loop to exit; cleanup publishes the final zero commands."""
         nonlocal stopped
         stopped = True
 

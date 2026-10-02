@@ -11,15 +11,19 @@ from .plot_recording import read_samples
 
 
 def analyze_response(rows):
-    """Require three independent, fresh, straight coast intervals of >=0.3 s.
+    """Estimate throttle-off deceleration from ordinary recorded coast intervals.
 
-    Fits measured velocity against wall time. Turn-induced slowing and stale
-    samples must not be mistaken for braking authority. This is experimental
-    evidence, not a guarantee of grip or hardware braking performance.
+    Require fresh data, near-straight steering and at least 0.3 seconds of slowing per
+    interval. Three accepted intervals allow a conservative suggestion. This older analysis
+    uses sampled elapsed time and does not establish braking at untested speeds.
     """
     episodes, current = [], []
 
     def finish():
+        """Fit the current coast interval if it has enough samples and slowing, then clear it.
+
+        Accepted fits have a negative speed slope and a small residual error.
+        """
         if len(current) >= 4:
             t = np.array([r["elapsed_s"] for r in current])
             v = np.array([r["speed"] for r in current])
@@ -36,6 +40,7 @@ def analyze_response(rows):
         current.clear()
 
     def number(row, name):
+        """Read a finite numeric field, or return NaN so incomplete samples fail qualification."""
         value = row.get(name)
         return value if isinstance(value, (int, float)) and math.isfinite(value) else math.nan
 
@@ -71,6 +76,11 @@ def analyze_response(rows):
 
 
 def main():
+    """Analyze one or more telemetry files and save their combined coast report.
+
+    Tag each accepted interval with its source recording and suggest no more than 80 percent
+    of the smallest fitted deceleration when enough intervals exist.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("recordings", nargs="+", type=Path)
     parser.add_argument("--output", type=Path, required=True)

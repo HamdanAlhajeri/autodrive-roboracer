@@ -4,12 +4,22 @@ import numpy as np
 
 
 def scan_hit_mask(msg):
-    """Exclude clear beams, retaining corrupt beams as the close obstacles in scan_cloud."""
+    """Mark beams that should be included in obstacle checks.
+
+    Positive infinity and readings at maximum range mean no measured wall. Corrupt beams
+    remain included because scan_cloud() places them close to the car.
+    """
     ranges = np.asarray(msg.ranges, dtype=np.float64)
     return ~(np.isposinf(ranges) | (np.isfinite(ranges) & (ranges >= msg.range_max)))
 
 
 def scan_cloud(msg):
+    """Convert LaserScan ranges and angles into AVLite's N-by-4 sensor-frame point array.
+
+    The first two columns are x/y in metres; the remaining columns stay zero. Clear beams
+    are placed at maximum range, while corrupt readings become nearby points. Use
+    scan_hit_mask() to distinguish these cases during planned obstacle checks.
+    """
     ranges = np.asarray(msg.ranges, dtype=np.float64)
     angles = msg.angle_min + np.arange(len(ranges)) * msg.angle_increment
     # Positive infinity means no return out to range_max. Unknown/corrupt beams

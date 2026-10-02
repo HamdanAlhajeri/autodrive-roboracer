@@ -12,6 +12,11 @@ from statistics import fmean, pstdev
 
 class LapProgress:
     def __init__(self, requested_laps=None):
+        """Initialize finish-crossing history and an optional positive lap target.
+
+        The starting counter is learned from telemetry, so recording does not need to begin
+        at counter zero.
+        """
         if requested_laps is not None and (
             isinstance(requested_laps, bool)
             or not isinstance(requested_laps, int)
@@ -29,6 +34,10 @@ class LapProgress:
 
     @property
     def target_reached(self):
+        """Return whether the requested number of finish crossings has been observed.
+
+        Without a lap target this stays false, allowing a recording to use its time limit.
+        """
         return (
             self.requested_laps is not None
             and self.completed_laps >= self.requested_laps
@@ -87,6 +96,11 @@ class LapProgress:
         self._previous_finish_s = elapsed_s
 
     def summary(self):
+        """Return lap counts, timing statistics and any counter-discontinuity flag.
+
+        Rolling lap times are measured between consecutive crossings. The first crossing is
+        reported separately because recording may have started midway through a lap.
+        """
         return {
             "requested_laps": self.requested_laps,
             "completed_laps": self.completed_laps,

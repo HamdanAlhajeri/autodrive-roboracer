@@ -24,7 +24,11 @@ ACTUATOR_FIELDS = frozenset({
 
 
 def diagnostic_values(text, allowed):
-    """Return a complete snapshot, clearing absent/nonfinite fields to null."""
+    """Decode one JSON diagnostic message and keep only the allowed numeric fields.
+
+    Return None for an invalid message. In a valid snapshot, missing or nonfinite fields
+    become None so stale values are cleared and vehicle-state keys cannot be overwritten.
+    """
     try:
         values = json.loads(text)
     except (TypeError, ValueError):

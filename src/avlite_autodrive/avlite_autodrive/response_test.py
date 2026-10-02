@@ -7,6 +7,10 @@ class ResponseExperiment:
     CRUISE, COAST, RECOVER, FINISHED, ABORTED = range(1, 6)
 
     def __init__(self, speed, trials):
+        """Validate the low-speed test request and initialize its phase and lap counters.
+
+        The test supports 1.0-2.5 m/s and at least three independent coast attempts.
+        """
         if not math.isfinite(speed) or not 1 <= speed <= 2.5:
             raise ValueError("Response speed must be between 1 and 2.5 m/s")
         if isinstance(trials, bool) or not isinstance(trials, int) or not 3 <= trials <= 20:
@@ -19,10 +23,20 @@ class ResponseExperiment:
 
     def reset(self):
         # Once moving/testing, an interruption invalidates the whole experiment.
+        """Mark a started experiment as aborted after a reset or interruption.
+
+        A reset before the first progress sample leaves it ready to begin.
+        """
         if self.previous_progress is not None:
             self.phase = self.ABORTED
 
     def step(self, now, progress, length, speed, eligible, safe=True):
+        """Advance the experiment by one sample and return whether throttle should be removed.
+
+        Use monotonic seconds, progress around the loop in metres, and measured speed in
+        m/s. Start at most one coast per circuit after speed has settled. End a coast after
+        0.8 seconds or when eligibility is lost, and abort on an unsafe sample.
+        """
         if self.phase == self.ABORTED:
             return False
         if not safe:
@@ -56,6 +70,7 @@ class ResponseExperiment:
         return True
 
     def diagnostics(self):
+        """Expose the current phase and trial counters as numeric telemetry fields."""
         return {"response_phase": self.phase, "response_trial_id": self.trial,
                 "response_trials_requested": self.trials,
                 "response_aborted": self.phase == self.ABORTED}

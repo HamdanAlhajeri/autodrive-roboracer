@@ -15,6 +15,58 @@ pytestmark = pytest.mark.skipif(os.environ.get("RUN_ROS_TESTS") != "1",
                                 reason="requires isolated ROS runtime")
 
 
+def test_both_ros_adapters_accept_high_speed_motion_but_reset_on_teleport(monkeypatch):
+    from types import SimpleNamespace
+    import rclpy
+    from nav_msgs.msg import Odometry
+    from avlite_autodrive import adapter as adapter_module
+    from avlite_autodrive.plugin import bridge as bridge_module
+
+    now = [100.0]
+    clock = SimpleNamespace(monotonic=lambda: now[0])
+    monkeypatch.setattr(adapter_module, "time", clock)
+    monkeypatch.setattr(bridge_module, "time", clock)
+    rclpy.init()
+    actuator = world = None
+    try:
+        actuator = adapter_module.ActuatorAdapter({"max_speed": 12.0, "max_throttle": 0.6})
+        world = bridge_module.AutoDRIVEWorldBridge()
+        msg = Odometry()
+        msg.pose.pose.orientation.w = 1.0
+        msg.twist.twist.linear.x = 12.0
+
+        def deliver(x, timestamp):
+            now[0] = timestamp
+            msg.pose.pose.position.x = x
+            actuator.on_odom(msg)
+            world.on_odom(msg)
+
+        deliver(0.0, 100.0)
+        actuator.control.target_speed = 12.0
+        actuator.control.receive_command(0.0, 0.0, now[0])
+        deliver(1.2, 100.1)
+        assert actuator.control.target_speed == 12.0
+        assert actuator.control.command is not None
+        assert world.reset_generation == 0
+
+        deliver(10.0, 100.2)
+        assert actuator.control.command is None
+        assert actuator.control.target_speed == 0.0
+        assert world.reset_generation == 1
+        assert world.scan_time == float("-inf")
+
+        actuator.control.receive_command(0.0, 1.0, now[0])
+        deliver(10.1, 100.8)
+        assert actuator.control.command is None
+        assert world.reset_generation == 2
+    finally:
+        if world is not None:
+            world.close()
+        if actuator is not None:
+            actuator.destroy_node()
+        rclpy.shutdown()
+
+
 @pytest.mark.parametrize("response_speed", [None, 1.5])
 def test_planned_runner_and_latched_recording(tmp_path, response_speed):
     import rclpy

@@ -20,6 +20,13 @@ from .plugin.response_controller import AutoDRIVEResponseController
 
 
 def main():
+    """Build the configured AVLite pipeline and run it at a nominal 20 Hz.
+
+    Resolve shared settings before creating controllers, and validate the global plan before
+    opening the command bridge. Reset tracking after sensor interruptions, publish timing
+    diagnostics, and close ROS resources when stopping. Simulator ground truth supplies
+    localization; this loop does not advance a local vehicle model.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="/config/avlite.yaml")
     parser.add_argument("--response-speed-mps", type=float)
@@ -61,6 +68,12 @@ def main():
             prepared.settings.braking_calibrated, prepared.settings.acceleration_mps2,
             prepared.settings.braking_deceleration_mps2,
         )
+        logging.info(
+            "Validated track profile: %.3f to %.3f m/s over %.2f m; "
+            "the ceiling is not the speed target at every point",
+            min(prepared.global_plan.velocity), max(prepared.global_plan.velocity),
+            prepared.path.length,
+        )
     pm = PerceptionModel(ego_vehicle=EgoState(x=0, y=0))
     local_planner = None
     controller = (AutoDRIVEPlannedController(prepared) if prepared else
@@ -87,6 +100,7 @@ def main():
     stopped = False
 
     def stop(*_):
+        """Set the shutdown flag so the running loop can exit through its cleanup block."""
         nonlocal stopped
         stopped = True
 
