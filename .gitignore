@@ -5,7 +5,7 @@ install/
 .ros/
 
 # Local runs: simulator downloads, extracted Windows app, recordings and logs
-log/
+/log/
 *.log
 *.pid
 config/maps/*.png

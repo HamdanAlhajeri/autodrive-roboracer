@@ -123,7 +123,7 @@ Run without a live ROS context — ROS 2 modules are stubbed out.
    pytest src/my_packages/my_team_racer/test/ -v
 
    # Or from the host
-   ./run_tests.sh
+   bash scripts/linux/test-legacy.sh
 
 .. list-table::
    :header-rows: 1
