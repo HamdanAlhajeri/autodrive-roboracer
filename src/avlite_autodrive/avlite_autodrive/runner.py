@@ -15,19 +15,30 @@ from .plugin import AutoDRIVEFollowTheGap, AutoDRIVEWorldBridge
 from .plugin.planned_controller import AutoDRIVEPlannedController
 from .configuration import load_config
 from .race_planning import prepare_plan
+from .response_test import ResponseExperiment, measurement_config
+from .plugin.response_controller import AutoDRIVEResponseController
 
 
 def main():
+    """Build the configured AVLite pipeline and run it at a nominal 20 Hz.
+
+    Resolve shared settings before creating controllers, and validate the global plan before
+    opening the command bridge. Reset tracking after sensor interruptions, publish timing
+    diagnostics, and close ROS resources when stopping. Simulator ground truth supplies
+    localization; this loop does not advance a local vehicle model.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="/config/avlite.yaml")
-    parser.add_argument("--response-speed", type=float,
+    parser.add_argument("--response-speed-mps", "--response-speed", type=float,
                         help="Run bounded straight coast attempts at 1.0-2.5 m/s")
     parser.add_argument("--response-trials", type=int, default=3)
     args = parser.parse_args()
     config = load_config(args.config)
-    if args.response_speed is not None:
-        from .response_test import measurement_config
-        config = measurement_config(config, args.response_speed)
+    if args.response_speed_mps is not None:
+        ResponseExperiment(args.response_speed_mps, args.response_trials)  # validate before ROS
+        config = measurement_config(config, args.response_speed_mps)
+        config["response_test"] = {"speed_mps": args.response_speed_mps,
+                                   "trials": args.response_trials}
     # Apply the explicit small-car profile BEFORE constructing the controller.
     for key, value in config["c30_control"].items():
         if not hasattr(ControlSettings, key):
@@ -46,19 +57,32 @@ def main():
         raise ValueError("driving_mode must be follow_the_gap or planned")
     # Preparation happens before the ROS bridge can send any command.
     prepared = prepare_plan(config, args.config) if mode == "planned" else None
+    if prepared:
+        logging.info(
+            "Planned speed ceiling %.3f m/s (requested %.3f; braking calibrated=%s); "
+            "acceleration %.3f m/s^2, braking %.3f m/s^2",
+            prepared.settings.speed_limit, prepared.settings.max_velocity_mps,
+            prepared.settings.braking_calibrated, prepared.settings.acceleration_mps2,
+            prepared.settings.braking_deceleration_mps2,
+        )
+        logging.info(
+            "Validated track profile: %.3f to %.3f m/s over %.2f m; "
+            "the ceiling is not the speed target at every point",
+            min(prepared.global_plan.velocity), max(prepared.global_plan.velocity),
+            prepared.path.length,
+        )
     pm = PerceptionModel(ego_vehicle=EgoState(x=0, y=0))
     local_planner = None
     controller = (AutoDRIVEPlannedController(prepared) if prepared else
                   AutoDRIVEFollowTheGap(racing=config.get("racing")))
-    if args.response_speed is not None:
-        from .plugin.response_controller import ResponseController
-        controller = ResponseController(prepared, args.response_speed, args.response_trials)
-        prepared.artifact["response_test"] = controller.experiment.metadata()
-    if prepared:
-        logging.info("Effective planned ceiling=%.3f m/s; braking_calibrated=%s; "
-                     "path profile=%.3f..%.3f m/s",
-                     prepared.settings.speed_limit, prepared.settings.braking_calibrated,
-                     min(prepared.global_plan.velocity), max(prepared.global_plan.velocity))
+    if args.response_speed_mps is not None:
+        controller = AutoDRIVEResponseController(
+            prepared, args.response_speed_mps, args.response_trials)
+        prepared.artifact["response_test"] = {
+            **controller.experiment.metadata(),
+            "straight_steering_limit_rad": controller.coast_window.steer_limit,
+            "preview_distance_m": controller.coast_window.preview_distance,
+        }
     world = AutoDRIVEWorldBridge()
     if prepared:
         world.map = prepared.planner.map
@@ -78,6 +102,7 @@ def main():
     stopped = False
 
     def stop(*_):
+        """Set the shutdown flag so the running loop can exit through its cleanup block."""
         nonlocal stopped
         stopped = True
 
@@ -101,7 +126,7 @@ def main():
                 )
             was_ready = ready
             if ready:
-                if (args.response_speed is not None
+                if (args.response_speed_mps is not None
                         and world.node.count_publishers("/avlite/control_command") > 1):
                     raise RuntimeError("Competing control publisher; response test aborted")
                 stack.step(

@@ -58,7 +58,8 @@ def test_response_runner_records_runtime_profile_and_coast_diagnostics(tmp_path)
             odom.header.frame_id, odom.child_frame_id = "world", "roboracer_1"
             odom.header.stamp = scan.header.stamp = node.get_clock().now().to_msg()
             odom.pose.pose.position.x, odom.pose.pose.position.y = map(float, xy)
-            odom.pose.pose.orientation.z, odom.pose.pose.orientation.w = math.sin(yaw / 2), math.cos(yaw / 2)
+            odom.pose.pose.orientation.z = math.sin(yaw / 2)
+            odom.pose.pose.orientation.w = math.cos(yaw / 2)
             odom.twist.twist.linear.x = 1.5
             odom_pub.publish(odom)
             scan_pub.publish(scan)
@@ -69,20 +70,24 @@ def test_response_runner_records_runtime_profile_and_coast_diagnostics(tmp_path)
 
     runner_log = (tmp_path / "response.log").open("w")
     recorder_log = (tmp_path / "recorder.log").open("w")
-    runner = subprocess.Popen([sys.executable, "-m", "avlite_autodrive.runner", "--config", str(profile),
-                               "--response-speed", "1.5", "--response-trials", "3"],
-                              stdout=runner_log, stderr=subprocess.STDOUT)
+    runner = subprocess.Popen(
+        [sys.executable, "-m", "avlite_autodrive.runner", "--config", str(profile),
+         "--response-speed", "1.5", "--response-trials", "3"],
+        stdout=runner_log, stderr=subprocess.STDOUT)
     recorder = None
     try:
         deadline = time.monotonic() + 25
-        while not any(d.get("response_phase") == 1 for d in diagnostics) and time.monotonic() < deadline:
+        while (not any(d.get("response_phase") == 2 for d in diagnostics)
+               and time.monotonic() < deadline):
             pump(0.1)
             assert runner.poll() is None, (tmp_path / "response.log").read_text()
-        assert any(d.get("response_phase") == 1 for d in diagnostics), (tmp_path / "response.log").read_text()
+        assert any(d.get("response_phase") == 2 for d in diagnostics), (
+            tmp_path / "response.log").read_text()
         assert any(c.acceleration <= -0.2 for c in commands)
-        recorder = subprocess.Popen([sys.executable, "-m", "avlite_autodrive.record", "--seconds", "1",
-                                     "--output", str(tmp_path / "telemetry.jsonl")],
-                                    stdout=recorder_log, stderr=subprocess.STDOUT)
+        recorder = subprocess.Popen(
+            [sys.executable, "-m", "avlite_autodrive.record", "--seconds", "1",
+             "--output", str(tmp_path / "telemetry.jsonl")],
+            stdout=recorder_log, stderr=subprocess.STDOUT)
         deadline = time.monotonic() + 12
         while recorder.poll() is None and time.monotonic() < deadline:
             pump(0.1, advance=False)
@@ -91,7 +96,8 @@ def test_response_runner_records_runtime_profile_and_coast_diagnostics(tmp_path)
         assert artifact["response_test"]["requested_trials"] == 3
         assert artifact["settings"]["max_velocity_mps"] == 1.5
         assert artifact["resolved_config"]["c30_control"]["c35_cruise_velocity"] == 1.5
-        rows = [json.loads(line) for line in (tmp_path / "telemetry.jsonl").read_text().splitlines()]
+        rows = [json.loads(line) for line in
+                (tmp_path / "telemetry.jsonl").read_text().splitlines()]
         assert any(r.get("response_trial", 0) for r in rows)
     finally:
         for process in (recorder, runner):

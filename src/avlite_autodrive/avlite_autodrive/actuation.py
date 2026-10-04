@@ -5,6 +5,7 @@ import math
 
 
 def clamp(value, low, high):
+    """Keep a number between the lower and upper limits, including both endpoints."""
     return min(high, max(low, value))
 
 
@@ -20,6 +21,11 @@ class Limits:
     braking_acceleration_threshold: float = 0.1
 
     def __post_init__(self):
+        """Reject unusable actuator settings as soon as the dataclass is created.
+
+        All gains and limits must be positive finite numbers. Throttle is normalized to 0-1,
+        while the steering limit is an angle in radians.
+        """
         if not all(math.isfinite(v) and v > 0 for v in vars(self).values()):
             raise ValueError("Actuator limits/gains must be finite and positive")
         if self.max_throttle > 1 or self.max_steer >= math.pi / 2:
@@ -28,10 +34,20 @@ class Limits:
 
 class Actuation:
     def __init__(self, limits=None):
+        """Store the supplied limits, or use defaults, and start with no valid sensor data.
+
+        This class contains the control calculations only; the ROS adapter supplies messages
+        and publishes its results.
+        """
         self.limits = limits or Limits()
         self.reset()
 
     def reset(self):
+        """Clear stored commands, sensor timestamps and accumulated speed error.
+
+        After a reset, tick() returns zero output until fresh commands, odometry and LiDAR
+        have arrived again.
+        """
         self.target_speed = 0.0
         self.integral = 0.0
         self.command = None
@@ -50,6 +66,11 @@ class Actuation:
         }
 
     def receive_command(self, steering, acceleration, now):
+        """Store steering in radians and acceleration in m/s^2 with their receive time.
+
+        Invalid numbers clear the controller state. Valid acceleration is clipped to the
+        adapter's supported range before the next control tick.
+        """
         if not all(math.isfinite(v) for v in (steering, acceleration, now)):
             self.reset()
             self.reason = "invalid command"
@@ -58,6 +79,10 @@ class Actuation:
         self.command_time = now
 
     def receive_speed(self, speed, now):
+        """Store measured forward speed in m/s and its monotonic receive time.
+
+        Reject nonfinite data so it cannot enter the throttle calculation.
+        """
         if not all(math.isfinite(v) for v in (speed, now)):
             self.reset()
             self.reason = "invalid odometry"
@@ -66,6 +91,15 @@ class Actuation:
         self.odom_time = now
 
     def tick(self, now, dt):
+        """Convert the latest acceleration request into normalized throttle and steering.
+
+        now and dt are monotonic time and elapsed time in seconds. Fresh inputs let us
+        integrate a speed target, then track it using feedforward and PI feedback. A braking
+        request removes throttle; it does not apply a known braking force.
+
+        Return (throttle, steering), or two zeros if inputs or timing are invalid.
+        Diagnostic fields explain which limit affected this update.
+        """
         ages = (now - self.command_time, now - self.odom_time, now - self.scan_time)
         self.diagnostics.update({
             "actuator_command_age_s": ages[0] if math.isfinite(ages[0]) else None,

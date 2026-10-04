@@ -49,7 +49,7 @@ The practice track is required. A new `.obj` track remains optional pending the
 file and a compatible Unity project. Opponents, loop closure and autonomous SLAM
 are outside this milestone.
 
-The 20 September hardware direction adds [Jetson plugin preparation](real-car-plugin-plan.md):
+The 20 September hardware direction adds [Jetson plugin preparation](real-car-plugin.md):
 identify the car, reuse AVLite localization, and provide remote run/stop.
 Hardware deployment and live estimated-localization driving have separate
 acceptance checks; they do not count as completed simulator work.

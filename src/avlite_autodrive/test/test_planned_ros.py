@@ -15,7 +15,60 @@ pytestmark = pytest.mark.skipif(os.environ.get("RUN_ROS_TESTS") != "1",
                                 reason="requires isolated ROS runtime")
 
 
-def test_planned_runner_and_latched_recording(tmp_path):
+def test_both_ros_adapters_accept_high_speed_motion_but_reset_on_teleport(monkeypatch):
+    from types import SimpleNamespace
+    import rclpy
+    from nav_msgs.msg import Odometry
+    from avlite_autodrive import adapter as adapter_module
+    from avlite_autodrive.plugin import bridge as bridge_module
+
+    now = [100.0]
+    clock = SimpleNamespace(monotonic=lambda: now[0])
+    monkeypatch.setattr(adapter_module, "time", clock)
+    monkeypatch.setattr(bridge_module, "time", clock)
+    rclpy.init()
+    actuator = world = None
+    try:
+        actuator = adapter_module.ActuatorAdapter({"max_speed": 12.0, "max_throttle": 0.6})
+        world = bridge_module.AutoDRIVEWorldBridge()
+        msg = Odometry()
+        msg.pose.pose.orientation.w = 1.0
+        msg.twist.twist.linear.x = 12.0
+
+        def deliver(x, timestamp):
+            now[0] = timestamp
+            msg.pose.pose.position.x = x
+            actuator.on_odom(msg)
+            world.on_odom(msg)
+
+        deliver(0.0, 100.0)
+        actuator.control.target_speed = 12.0
+        actuator.control.receive_command(0.0, 0.0, now[0])
+        deliver(1.2, 100.1)
+        assert actuator.control.target_speed == 12.0
+        assert actuator.control.command is not None
+        assert world.reset_generation == 0
+
+        deliver(10.0, 100.2)
+        assert actuator.control.command is None
+        assert actuator.control.target_speed == 0.0
+        assert world.reset_generation == 1
+        assert world.scan_time == float("-inf")
+
+        actuator.control.receive_command(0.0, 1.0, now[0])
+        deliver(10.1, 100.8)
+        assert actuator.control.command is None
+        assert world.reset_generation == 2
+    finally:
+        if world is not None:
+            world.close()
+        if actuator is not None:
+            actuator.destroy_node()
+        rclpy.shutdown()
+
+
+@pytest.mark.parametrize("response_speed", [None, 1.5])
+def test_planned_runner_and_latched_recording(tmp_path, response_speed):
     import rclpy
     from ackermann_msgs.msg import AckermannDriveStamped
     from nav_msgs.msg import Odometry
@@ -69,8 +122,11 @@ def test_planned_runner_and_latched_recording(tmp_path):
 
     runner_log = (tmp_path / "runner.log").open("w")
     recorder_log = (tmp_path / "recorder.log").open("w")
+    response_args = (["--response-speed-mps", str(response_speed), "--response-trials", "3"]
+                     if response_speed else [])
     runner = subprocess.Popen([sys.executable, "-m", "avlite_autodrive.runner", "--config",
-                               str(profile)], stdout=runner_log, stderr=subprocess.STDOUT)
+                               str(profile), *response_args],
+                              stdout=runner_log, stderr=subprocess.STDOUT)
     recorder = None
     try:
         deadline = time.monotonic() + 20
@@ -90,13 +146,19 @@ def test_planned_runner_and_latched_recording(tmp_path):
             pump(0.1)
         assert recorder.poll() == 0, (tmp_path / "recorder.log").read_text()
         artifact = json.loads((tmp_path / "telemetry.plan.json").read_text())
-        assert artifact["settings"]["max_velocity_mps"] == 2.5
+        assert artifact["settings"]["max_velocity_mps"] == (response_speed or 2.5)
+        assert yaml.safe_load(profile.read_text()) == config  # temporary settings only
+        if response_speed:
+            assert artifact["resolved_config"]["response_test"] == {
+                "speed_mps": response_speed, "trials": 3}
         assert artifact["map"]["LeftBound"]
         assert (tmp_path / "telemetry.racemap.json").exists()
         assert (tmp_path / "telemetry.planning-config.json").exists()
         lines = (tmp_path / "telemetry.jsonl").read_text().splitlines()
         rows = [json.loads(line) for line in lines]
         assert any(row.get("planned_speed_mps", 0) > 0 for row in rows)
+        if response_speed:
+            assert any(row.get("response_phase") == 1 for row in rows)
         # A fresh but off-track pose must produce a braking request, never stale intent.
         odom.pose.pose.position.x = 20.0
         outputs.clear()

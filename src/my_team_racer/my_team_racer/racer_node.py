@@ -31,6 +31,12 @@ EMA_ALPHA = 0.3  # smoothing factor for gy estimate (0=no update, 1=no filter)
 
 class RacerNode(Node):
     def __init__(self):
+        """Create LiDAR input and direct throttle/steering publishers for the legacy
+        controller.
+
+        This standalone node bypasses AVLite and its independent actuator, so the two
+        controllers should not run together.
+        """
         super().__init__("racer_node")
 
         self.sub_lidar = self.create_subscription(
@@ -54,6 +60,11 @@ class RacerNode(Node):
     # ── LiDAR callback ────────────────────────────────────────────────────────
 
     def _lidar_cb(self, msg: LaserScan) -> None:
+        """Use one LiDAR scan to estimate a centre target and publish steering and throttle.
+
+        Clip extreme ranges, compute a smoothed sideways target offset, then apply geometric
+        Pure Pursuit and steering-based throttle scheduling.
+        """
         ranges = np.array(msg.ranges, dtype=np.float32)
         angle_min = msg.angle_min
         angle_inc = msg.angle_increment
@@ -75,6 +86,11 @@ class RacerNode(Node):
     # ── Centerline lateral offset estimate ───────────────────────────────────
 
     def _estimate_gy(self, ranges: np.ndarray, angles: np.ndarray) -> float:
+        """Estimate a sideways centreline offset in metres from visible left and right points.
+
+        Use median wall distances ahead of the car and smooth the result with an exponential
+        moving average. Positive gy places the target to the left.
+        """
         xs = ranges * np.cos(angles)
         ys = ranges * np.sin(angles)
 
@@ -94,6 +110,11 @@ class RacerNode(Node):
     # ── Geometric pure pursuit steering ──────────────────────────────────────
 
     def _pure_pursuit_steer(self, gx: float, gy: float) -> float:
+        """Convert a local target (gx, gy) in metres into normalized steering in [-1, 1].
+
+        Use target curvature and wheelbase to find the steering angle, preserve the turn
+        direction, then divide by the configured steering limit.
+        """
         L_sq = gx**2 + gy**2
         if abs(gy) < 1e-6:
             return 0.0
@@ -105,6 +126,11 @@ class RacerNode(Node):
     # ── Throttle scheduling ───────────────────────────────────────────────────
 
     def _speed_from_steer(self, steering: float) -> float:
+        """Reduce normalized throttle as the steering command grows in magnitude.
+
+        Despite the function name, the returned value is throttle, not a measured or
+        requested speed in m/s.
+        """
         throttle = MAX_THROTTLE * math.exp(-THROTTLE_DECAY * abs(steering))
         return float(np.clip(throttle, MIN_THROTTLE, MAX_THROTTLE))
 
@@ -113,6 +139,7 @@ class RacerNode(Node):
 
 
 def main(args=None):
+    """Initialize ROS and run the legacy node until interrupted, then release its resources."""
     rclpy.init(args=args)
     node = RacerNode()
     try:
