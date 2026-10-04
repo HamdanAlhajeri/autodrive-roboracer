@@ -11,6 +11,7 @@ Start with the root [README](../README.md) and [team contribution guide](../CONT
 | Prepare maps and configure the race planner | [Planned driving](planned-driving.md) |
 | Build, select, test or roll back the custom track | [Sketch track](sketch-track.md) |
 | Measure acceleration and braking response | [Response measurements](response-measurements.md) |
+| Record, map, localize and race the Jetson car | [Jetson car](jetson.md) |
 
 ## Plans and evidence
 
@@ -18,7 +19,8 @@ Start with the root [README](../README.md) and [team contribution guide](../CONT
 | --- | --- |
 | [plans/checklist-2026-09-21.md](plans/checklist-2026-09-21.md) | Ongoing implementation and validation checklist |
 | [plans/milestone-2026-09-21.md](plans/milestone-2026-09-21.md) | Original milestone and acceptance criteria |
-| [plans/real-car-plugin.md](plans/real-car-plugin.md) | Proposed hardware integration; not implemented |
+| [plans/LOCALIZATIONPLAN.md](plans/LOCALIZATIONPLAN.md) | Jetson map-one-lap-then-race plan; software implemented, hardware validation pending |
+| [plans/real-car-plugin.md](plans/real-car-plugin.md) | Earlier hardware proposal (AVLite ICP); superseded by the SLAM Toolbox plan |
 | [validation/](validation/) | Dated measurements, graphs and test reports |
 | [validation/controller-history.md](validation/controller-history.md) | Earlier steering and actuator comparisons, moved out of the README |
 | [history/avlite-integration-plan.md](history/avlite-integration-plan.md) | Original integration plan |

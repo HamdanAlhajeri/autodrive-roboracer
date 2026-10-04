@@ -46,30 +46,20 @@ The [recording script](scripts/windows/laps.ps1) manages test capture and produc
 speed and control plots. Its LiDAR track outline uses simulator ground-truth
 poses; it is not an implemented mapping/localization system for the real car.
 
-### Planned real-car system
+### Real car (Jetson)
 
-Add an installable **`avlite_roboracer`** plugin package alongside
-`avlite_autodrive`, reusing the driving algorithms with hardware-specific inputs
-and outputs. **This hardware package is not implemented yet.**
+[`src/avlite_roboracer`](src/avlite_roboracer/) implements the
+[localization plan](docs/plans/LOCALIZATIONPLAN.md). The car drives one slow
+autonomous lap while SLAM Toolbox maps the track, then stops. While stopped, it
+builds and validates the map, racing line and localization, and reports READY.
+Racing starts only on an explicit `race-start` from the laptop. The package also
+provides the hardware profile, synchronized recording and replay, and the
+localization-quality report.
 
-| Component to add | Responsibility on the Jetson |
-| --- | --- |
-| Hardware bridge | Read LiDAR, wheel odometry and IMU drivers; configure topics, units, coordinate frames and sensor mounts; validate source timestamps |
-| Mapping and localization | Save the physical track map; wrap AVLite ICP with odometry/IMU prediction and pose-quality checks; replace the simulator localization bypass |
-| Hardware actuator | Translate commands into the motor/steering driver's interface; calibrate steering and braking; provide command expiry independent of the driving process and retain manual stopping |
-| Vehicle profile | Store measured wheelbase, steering limits, sensor positions and acceleration/braking limits separately from simulator settings |
-| Launcher, supervisor and recorder | Provide record/map/localize/drive modes, remote start/stop/status and hardware telemetry; expire drive authorization locally on lost contact |
-
-The sensor-to-motor loop runs locally on the Jetson; the laptop supervises it.
-Choose native installation or a compatible ARM container after identifying the
-Jetson's OS, JetPack and ROS versions. The desktop simulator image is not the
-hardware deployment image.
-
-Reactive Follow the Gap does not inherently require a global map. The current
-mapped planner requires a track map and a reliable estimated pose, so hardware
-mapping and localization must be validated before planned driving. See the
-[real-car implementation plan](docs/plans/real-car-plugin.md) for module names,
-the hardware inspection command and commissioning steps.
+**It has not yet run on the Jetson.** The hardware profile is unfilled, so the
+supervisor refuses autonomous motion until commissioning measurements are entered.
+See the [Jetson guide](docs/jetson.md) for the workflow, commands and outstanding
+validation.
 
 ## Start here
 
@@ -144,6 +134,9 @@ Dated test results describe their original profiles, not the current settings.
 | --- | --- |
 | [avlite.ps1](avlite.ps1) | Single Windows command entry point |
 | [src/avlite_autodrive/](src/avlite_autodrive/) | Main integration, plugins and Python/ROS tests |
+| [src/avlite_roboracer/](src/avlite_roboracer/) | Jetson recording, SLAM Toolbox mapping/localization, supervisor and actuator |
+| [config/roboracer/](config/roboracer/) | Jetson hardware profile, racing profile and SLAM Toolbox settings |
+| [scripts/jetson/](scripts/jetson/) | Supervisor CLI wrapper used over SSH |
 | [config/](config/) | Shared settings, control profiles and race maps |
 | [scripts/windows/](scripts/windows/) | Command implementations, shared paths and command registry |
 | [scripts/linux/](scripts/linux/) | Legacy Linux test runner |
@@ -216,7 +209,8 @@ and Docker's build context.
 
 Follow the [implementation checklist](docs/plans/checklist-2026-09-21.md) and
 [acceptance milestone](docs/plans/milestone-2026-09-21.md). Hardware integration
-is described in the [real-car plan](docs/plans/real-car-plugin.md).
+follows the [localization plan](docs/plans/LOCALIZATIONPLAN.md); see the
+[Jetson guide](docs/jetson.md) for its status.
 
 Measured results are collected under [docs/validation/](docs/validation/), including
 [earlier controller comparisons](docs/validation/controller-history.md), the

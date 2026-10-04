@@ -175,6 +175,19 @@ def test_above_ten_plan_and_controller_on_sufficiently_large_track(profile, tmp_
         assert cmd.acceleration > 0.0
 
 
+def test_hardware_map_frame_is_planned_only_when_declared(tmp_path, profile):
+    data = dict(circle_map(), frame_id="map")
+    filename = tmp_path / "hardware.json"
+    filename.write_text(json.dumps(data))
+    profile["planning"]["map_path"] = str(filename)
+    with pytest.raises(ValueError, match="world coordinates"):
+        prepare_plan(profile, tmp_path / "avlite.yaml")
+    profile["planning"]["frame_id"] = "map"
+    prepared = prepare_plan(profile, tmp_path / "avlite.yaml")
+    assert prepared.artifact["frame_id"] == "map"
+    assert prepared.artifact["settings"]["frame_id"] == "map"
+
+
 def test_pure_pursuit_wraps_finish_line_and_starts_mid_lap(prepared):
     controller = AutoDRIVEPlannedController(prepared)
     assert isinstance(controller, PurePursuitController)

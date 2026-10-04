@@ -28,10 +28,10 @@ jobs:
       - name: Install linters
         run: pip install flake8==7.1.2
 
-      - name: Lint controllers and bridge
+      - name: Lint controllers, bridge and Jetson integration
         run: >-
           flake8 src/my_team_racer/my_team_racer/racer_node.py src/avlite_autodrive
-          --select E,F,W --ignore E203,W503 --max-line-length=100
+          src/avlite_roboracer --select E,F,W --ignore E203,W503 --max-line-length=100
 
   unit-tests:
     runs-on: ubuntu-22.04
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-      - run: pip install pytest==8.3.5 numpy==1.26.4 PyYAML==6.0.2
+      - run: pip install pytest==8.3.5 numpy==1.26.4 PyYAML==6.0.2 scipy==1.15.3 shapely==2.1.2
       - name: Legacy controller regression tests
         run: PYTHONPATH=src/my_team_racer python -m pytest -q src/my_team_racer/test/test_racer_node.py
       - name: Actuation and sensor unit tests
@@ -53,6 +53,10 @@ jobs:
             src/avlite_autodrive/test/test_telemetry_health.py \
             src/avlite_autodrive/test/test_response_test.py \
             src/avlite_autodrive/test/test_response_analysis.py
+      - name: Jetson supervisor, mapping, localization-report and watchdog tests (no ROS)
+        run: |
+          PYTHONPATH=src/avlite_roboracer:src/avlite_autodrive python -m pytest -q \
+            src/avlite_roboracer/test
 
   avlite-ros:
     runs-on: ubuntu-22.04
@@ -63,9 +67,13 @@ jobs:
         run: docker compose -f docker-compose.avlite.yml build actuator avlite
       - name: Real AVLite, ROS transport and process-death watchdog tests
         run: |
-          docker compose -f docker-compose.avlite.yml run --rm --no-deps \
-            -e ROS_DOMAIN_ID=73 -e RUN_ROS_TESTS=1 --entrypoint /bin/bash avlite \
-            -c 'source /opt/ros/humble/setup.bash && python -m pytest -q -p no:cacheprovider test'
+          docker run --rm --network none -e ROS_DOMAIN_ID=73 -e RUN_ROS_TESTS=1 \
+            -e OPENBLAS_NUM_THREADS=1 -e OMP_NUM_THREADS=1 \
+            -e PYTHONPATH=/workspace/src/avlite_autodrive:/workspace/src/avlite_roboracer \
+            -v "$PWD/src:/workspace/src:ro" -v "$PWD/config:/workspace/config:ro" \
+            -v "$PWD/assets:/workspace/assets:ro" -v "$PWD/config:/config:ro" \
+            -w /workspace --entrypoint /bin/bash autodrive-roboracer-avlite:local \
+            -c 'source /opt/ros/humble/setup.bash && python -m pytest -q -p no:cacheprovider src/avlite_autodrive/test src/avlite_roboracer/test'
       - name: Build ROS integration package
         run: |
           docker compose -f docker-compose.avlite.yml run --rm --no-deps \
@@ -89,4 +97,4 @@ jobs:
         run: |
           . /opt/ros/humble/setup.sh
           cd src
-          colcon build --packages-select my_team_racer
+          colcon build --packages-select my_team_racer avlite_autodrive avlite_roboracer

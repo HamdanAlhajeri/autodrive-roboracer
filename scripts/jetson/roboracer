@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Supervisor CLI entry point for SSH from the laptop. Needs only Python 3: the CLI talks
+# to the running supervisor over its local socket and opens no ROS or hardware resources.
+set -euo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+export PYTHONPATH="$repo/src/avlite_roboracer${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m avlite_roboracer.cli "$@"

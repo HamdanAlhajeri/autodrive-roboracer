@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 
+import numpy as np
 import pytest
 import yaml
 
@@ -13,6 +14,17 @@ from test_race_planning import circle_map
 
 pytestmark = pytest.mark.skipif(os.environ.get("RUN_ROS_TESTS") != "1",
                                 reason="requires isolated ROS runtime")
+
+
+def response_track():
+    """A stadium with real straights, as required by the response controller."""
+    def boundary(radius):
+        angles = np.linspace(-np.pi / 2, np.pi / 2, 60, endpoint=False)
+        right = np.column_stack((3 + radius * np.cos(angles), radius * np.sin(angles)))
+        top = np.column_stack((np.linspace(3, -3, 60, endpoint=False), np.full(60, radius)))
+        return np.vstack((right, top, -right, -top)).tolist()
+
+    return {"LeftBound": boundary(1.3), "RightBound": boundary(2.7), "ReferencePoint": [0, 0]}
 
 
 def test_both_ros_adapters_accept_high_speed_motion_but_reset_on_teleport(monkeypatch):
@@ -76,7 +88,8 @@ def test_planned_runner_and_latched_recording(tmp_path, response_speed):
     from std_msgs.msg import Int32
     from avlite_autodrive.ros_utils import PREFIX
 
-    (tmp_path / "track.json").write_text(json.dumps(circle_map()))
+    (tmp_path / "track.json").write_text(json.dumps(
+        response_track() if response_speed else circle_map()))
     config = {
         "driving_mode": "planned",
         "planning": {"map_path": "track.json"},
@@ -101,7 +114,7 @@ def test_planned_runner_and_latched_recording(tmp_path, response_speed):
                              lambda m: outputs.append(m.drive), 10)
     odom = Odometry()
     odom.header.frame_id, odom.child_frame_id = "world", "roboracer_1"
-    odom.pose.pose.position.x = 3.0
+    odom.pose.pose.position.x = 5.0 if response_speed else 3.0
     odom.pose.pose.orientation.z = odom.pose.pose.orientation.w = 2**-0.5
     scan = LaserScan()
     scan.header.frame_id = "lidar"
