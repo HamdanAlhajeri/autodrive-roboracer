@@ -33,7 +33,8 @@ stock API and actuator retain NumPy 1 for `cv_bridge`.
 
 ## Start, reload and stop
 
-Windows: follow the [README quick start](../README.md#start-and-record-on-windows).
+Windows: follow the [README quick start](../README.md#start-here) and
+[command reference](commands.md).
 The visible simulator is a native Windows Unity application; Docker runs the
 ROS bridge and controllers. Initial downloads can take several minutes.
 
@@ -41,7 +42,7 @@ Linux requires Docker Compose v2, NVIDIA Container Toolkit and an X11 display.
 Run from the repository root:
 
 ```bash
-docker compose down
+docker compose --project-directory . -f docker/legacy/compose.yml down
 xhost +si:localuser:root
 docker compose -f docker-compose.avlite.yml build
 docker compose -f docker-compose.avlite.yml up -d
@@ -57,14 +58,14 @@ service after edits; restart both controllers for shared-setting changes.
 Rebuild for Dockerfile/dependency changes. On Windows:
 
 ```powershell
-docker compose -f docker-compose.avlite.yml -f docker-compose.windows.yml restart avlite actuator
+.\avlite.ps1 restart
 ```
 
 Restarting permits driving once sensors are ready. The recording wrapper handles
 this reload itself. Only one controller may own the actuator topics; keep the
 original controller stopped when using AVLite.
 
-Stop Windows with `.\run-windows.ps1 -Stop`. On Linux, stop AVLite first so
+Stop Windows with `.\avlite.ps1 stop`. On Linux, stop AVLite first so
 the actuator can transmit zero before shutdown:
 
 ```bash
@@ -135,7 +136,7 @@ target bearings. For zero curvature, use the configured speed ceiling. Initial a
 $a_{\mathrm{lat}}=3.0$ m/s², deceleration $b=1.5$ m/s², reaction time $\tau=0.25$ s
 and clearance margin 0.15 m. These remain uncalibrated. Reactive clearance checks
 use straight heading/target corridors; [planned mode](planned-driving.md#speed-and-obstacle-limits)
-also checks curved paths. See the [preview results](../README.md#tests-and-improvements).
+also checks curved paths. See the [preview results](validation/controller-history.md).
 
 ## Actuator conversion and stopping
 
@@ -176,7 +177,7 @@ command expiry is pending. Graceful shutdown sends zero, not an instantaneous st
 With the Windows simulator connected in Autonomous mode:
 
 ```powershell
-.\record-one-lap.ps1 -Laps 3 -Label controller-test
+.\avlite.ps1 laps -Laps 3 -Label controller-test
 ```
 
 The wrapper stops AVLite, reloads the actuator and prompts for a reset. After
@@ -204,7 +205,7 @@ Planned mode adds [runtime map/profile artifacts](planned-driving.md#recording-a
 Disk snapshots are distinct from active per-tick demands. The graph's saved speed
 ceiling is also distinct from controller target and measured speed.
 
-For passive capture, use `.\record-windows.ps1 -Seconds 120 -Label corner-test`.
+For passive capture, use `.\avlite.ps1 record -Seconds 120 -Label corner-test`.
 It leaves driving running afterward. Its `-Laps`, `-StopAfterLap` and
 `-StopOnIncident` options stop capture only.
 
@@ -294,17 +295,28 @@ PYTHONPATH=src/my_team_racer python3 -m pytest -q src/my_team_racer/test/test_ra
 The ROS tests exercise the actual executor/adapter with synthetic inputs and
 verify zero output after controller loss. They do not establish lap performance.
 
+Windows response workflow cleanup can be checked without Docker or the simulator:
+
+```powershell
+.\avlite.ps1 test
+```
+
+The suites mock Docker and cover command routing, paths containing spaces,
+normal laps, response completion, partial controller startup, recorder failure
+and controller exit. See [response measurements](response-measurements.md)
+for source-rate capture, qualification and the live test command.
+
 ## Original controller
 
 The legacy [racer_node.py](../src/my_team_racer/my_team_racer/racer_node.py) estimates
 a centerline from left/right LiDAR walls and uses geometric Pure Pursuit.
 On Linux, stop AVLite, grant X11 access as above and run
-`docker compose up simulator devkit`. Select Connection and Autonomous in Unity.
+`docker compose --project-directory . -f docker/legacy/compose.yml up simulator devkit`. Select Connection and Autonomous in Unity.
 
 For an interactive development shell:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm devkit
+docker compose --project-directory . -f docker/legacy/compose.yml -f docker/legacy/compose.dev.yml run --rm devkit
 # Inside the container:
 colcon build --packages-select my_team_racer
 source install/setup.bash

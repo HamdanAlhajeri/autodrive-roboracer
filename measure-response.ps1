@@ -26,32 +26,5 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-if ($PSCmdlet.ParameterSetName -eq 'Run') {
-    $speedLabel = $TargetSpeedMps.ToString('0.0#', [Globalization.CultureInfo]::InvariantCulture).Replace('.', 'p')
-    $label = "response-$speedLabel"
-    $recording = Join-Path $PSScriptRoot ('log\recordings\' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '-' + $label)
-    Write-Host "Response test: $Trials coast attempts at $TargetSpeedMps m/s; $($Trials + 1) laps maximum."
-    Write-Host 'Keep the simulator on the practice layout matching the configured map.'
-    Write-Host 'The saved speed/throttle settings stay unchanged; the test uses a temporary speed ceiling.'
-    & (Join-Path $PSScriptRoot 'record-one-lap.ps1') -Laps ($Trials + 1) -Label $label `
-        -MaxSeconds $MaxSeconds -OutputDirectory $recording -ResponseSpeedMps $TargetSpeedMps `
-        -ResponseTrials $Trials -NoOpen
-} else {
-    $recording = (Resolve-Path -LiteralPath $RecordingDirectory).Path
-}
-if (-not (Test-Path -LiteralPath (Join-Path $recording 'telemetry.jsonl'))) {
-    throw 'Select a recording containing telemetry.jsonl.'
-}
-& docker run --rm --network none -e PYTHONDONTWRITEBYTECODE=1 -e OPENBLAS_NUM_THREADS=1 `
-    -v "${recording}:/records" `
-    -v "${PSScriptRoot}/src/avlite_autodrive:/opt/integration:ro" `
-    --entrypoint /opt/avlite-venv/bin/python autodrive-roboracer-avlite:local `
-    -m avlite_autodrive.response_analysis /records
-if ($LASTEXITCODE -ne 0) { throw "Response analysis failed. Telemetry remains in $recording" }
-$report = Join-Path $recording 'response-report.json'
-$graph = Join-Path $recording 'response-report.png'
-$result = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
-Write-Host "Report: $report"
-Write-Host "Graph: $graph"
-Write-Host $result.next_step
-if (-not $NoOpen) { Invoke-Item -LiteralPath $graph }
+# Compatibility entry point for commands saved before the Windows CLI migration.
+& (Join-Path $PSScriptRoot 'scripts/windows/response.ps1') @PSBoundParameters

@@ -20,7 +20,7 @@ from avlite.c40_execution.c41_world_bridge import WorldBridge
 from avlite.c10_perception.c11_perception_model import EgoState, PerceptionModel
 from avlite.c50_common.c51_capabilities import StackCapability, WorldCapability
 from avlite.c50_common.c52_world_sensor_datatypes import Lidar
-from avlite_autodrive.ros_utils import PREFIX, odom_state, valid_scan
+from avlite_autodrive.ros_utils import PREFIX, odom_state, pose_discontinuous, valid_scan
 from avlite_autodrive.sensors import scan_cloud, scan_hit_mask
 from .planned_controller import AutoDRIVESensorFrame
 
@@ -30,6 +30,11 @@ class AutoDRIVEWorldBridge(WorldBridge):
     stack_capabilities = frozenset({StackCapability.LOCALIZATION})
 
     def __init__(self, ego_state=None, pm=None, **kwargs):
+        """Connect AVLite to ROS sensor and command topics in a background thread.
+
+        Store the LiDAR mounting transform from the rear axle, initialize empty sensor
+        history, and create a retained plan publisher so a recorder can join later.
+        """
         self.ego_state = ego_state or EgoState(x=0.0, y=0.0, theta=0.0)
         self.perception_model = pm or PerceptionModel(ego_vehicle=self.ego_state)
         self.reference_point = None
@@ -72,6 +77,7 @@ class AutoDRIVEWorldBridge(WorldBridge):
 
     @property
     def ready(self):
+        """Report whether a LiDAR cloud and odometry have both arrived within 0.5 seconds."""
         with self.lock:
             return (
                 self.cloud is not None
@@ -79,32 +85,51 @@ class AutoDRIVEWorldBridge(WorldBridge):
             )
 
     def on_scan(self, msg):
+        """Convert a valid LaserScan into sensor-frame points and a real-hit mask.
+
+        Update both under the same lock so the controller cannot read points from one scan
+        with a mask from another.
+        """
         with self.lock:
             self.cloud = scan_cloud(msg) if valid_scan(msg) else None
             self.hit_mask = scan_hit_mask(msg) if self.cloud is not None else None
             self.scan_time = time.monotonic() if self.cloud is not None else -math.inf
 
     def on_odom(self, msg):
+        """Update AVLite's world pose, heading and forward speed from simulator odometry.
+
+        Invalid data is marked stale. An unexpected jump increments the reset counter and
+        requires a new scan before driving continues.
+        """
         try:
             x, y, theta, velocity = odom_state(msg)
         except ValueError:
             with self.lock:
                 self.odom_time = -math.inf
+                self.last_pose = None
             return
         with self.lock:
-            if self.last_pose and math.hypot(x - self.last_pose[0], y - self.last_pose[1]) > 1.0:
+            now = time.monotonic()
+            pose = (x, y, velocity, now)
+            if pose_discontinuous(self.last_pose, pose):
                 self.reset_generation += 1
                 self.scan_time = -math.inf
-            self.last_pose = (x, y)
+            self.last_pose = pose
             self.ego_state.x, self.ego_state.y = x, y
             self.ego_state.theta, self.ego_state.velocity = theta, velocity
-            self.odom_time = time.monotonic()
+            self.odom_time = now
 
     def on_reset(self, msg):
+        """Invalidate the current sensor state when a simulator reset is announced."""
         if msg.data:
             self.reset()
 
     def reset(self):
+        """Clear sensor history and increment the reset generation.
+
+        The runner watches this generation to reset planner progress and controller memory
+        even if sensors recover between two control ticks.
+        """
         with self.lock:
             self.reset_generation += 1
             self.cloud = None
@@ -114,6 +139,11 @@ class AutoDRIVEWorldBridge(WorldBridge):
 
     def get_sensor_frame(self, agent_id=None):
         # Capture sensor and ego snapshots together for a single AVLite tick.
+        """Copy the latest scan and pose together for one AVLite control update.
+
+        The returned frame includes sensor ages and a hit mask. Copies prevent the ROS
+        callback thread from changing data while the controller is using it.
+        """
         with self.lock:
             self.snapshot_ego = copy.deepcopy(self.ego_state)
             now = time.monotonic()
@@ -127,12 +157,19 @@ class AutoDRIVEWorldBridge(WorldBridge):
             )
 
     def get_ego_state(self):
+        """Return the pose snapshot captured with the most recent sensor frame."""
         return copy.deepcopy(self.snapshot_ego)
 
     def publish_plan(self, artifact):
+        """Publish the validated plan as retained JSON for recording and later analysis."""
         self.plan_publisher.publish(String(data=json.dumps(artifact, allow_nan=False)))
 
     def control_ego_state(self, cmd, dt=0.05):
+        """Forward AVLite steering and acceleration to the independent ROS actuator.
+
+        Do not publish when sensors are stale; the actuator watchdog then removes throttle.
+        dt is accepted for the WorldBridge interface but is not used to simulate motion.
+        """
         if not self.ready:
             return  # The independent adapter times out instead of holding throttle.
         msg = AckermannDriveStamped()
@@ -143,6 +180,11 @@ class AutoDRIVEWorldBridge(WorldBridge):
         self.publisher.publish(msg)
 
     def publish_diagnostics(self, values):
+        """Add sensor ages to controller diagnostics and publish a JSON snapshot.
+
+        Represent unavailable or nonfinite values as null so recorded data does not confuse
+        missing information with a measured zero.
+        """
         with self.lock:
             now = time.monotonic()
             values = {
@@ -156,6 +198,7 @@ class AutoDRIVEWorldBridge(WorldBridge):
         self.diagnostics_publisher.publish(String(data=json.dumps(values, allow_nan=False)))
 
     def close(self):
+        """Stop the ROS executor thread and release this bridge's node."""
         self.executor.shutdown(timeout_sec=2)
         self.thread.join(timeout=2)
         self.node.destroy_node()

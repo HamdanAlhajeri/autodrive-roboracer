@@ -13,9 +13,9 @@ AutoDRIVE practice simulator and complete a clean low-speed lap.
 - [x] Record a clean lap at a 0.5 m/s ceiling and 0.02 throttle cap.
 - [x] Document results and add automated CI coverage.
 
-The [validation report](avlite-validation.md) contains the measured evidence.
+The [validation report](../validation/avlite-baseline.md) contains the measured evidence.
 The original delivery is recorded in
 [PR #1](https://github.com/HamdanAlhajeri/autodrive-roboracer/pull/1).
 
-For current work, use the [execution checklist](checklist-2026-09-21.md),
-[setup guide](avlite-setup.md) and [real-car plan](real-car-plugin-plan.md).
+For current work, use the [execution checklist](../plans/checklist-2026-09-21.md),
+[setup guide](../avlite-setup.md) and [real-car plan](../plans/real-car-plugin.md).

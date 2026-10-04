@@ -11,15 +11,22 @@ from .plot_recording import read_samples
 
 
 def analyze_response(rows):
-    """Require three independent, fresh, straight coast intervals of >=0.3 s.
+    """Estimate throttle-off deceleration from ordinary recorded coast intervals.
 
-    Fits measured velocity against wall time. Turn-induced slowing and stale
-    samples must not be mistaken for braking authority. This is experimental
-    evidence, not a guarantee of grip or hardware braking performance.
+    Require fresh data, near-straight steering and at least 0.3 seconds of slowing per
+    interval. Three accepted intervals allow a conservative suggestion. This older analysis
+    uses sampled elapsed time and does not establish braking at untested speeds.
     """
     episodes, current = [], []
 
+    def trial_id(row):
+        return row.get("response_trial_id", row.get("response_trial"))
+
     def finish():
+        """Fit the current coast interval if it has enough samples and slowing, then clear it.
+
+        Accepted fits have a negative speed slope and a small residual error.
+        """
         if len(current) >= 4:
             t = np.array([r["elapsed_s"] for r in current])
             v = np.array([r["speed"] for r in current])
@@ -34,10 +41,11 @@ def analyze_response(rows):
                                      "deceleration_mps2": float(-slope),
                                      "fit_rms_mps": residual,
                                      "distance_m": float(np.sum(np.diff(t) * (v[:-1] + v[1:]) / 2)),
-                                     "response_trial": current[0].get("response_trial")})
+                                     "response_trial": trial_id(current[0])})
         current.clear()
 
     def number(row, name):
+        """Read a finite numeric field, or return NaN so incomplete samples fail qualification."""
         value = row.get(name)
         return value if isinstance(value, (int, float)) and math.isfinite(value) else math.nan
 
@@ -49,13 +57,15 @@ def analyze_response(rows):
                  and 0 <= number(row, "throttle") <= 0.005
                  and abs(number(row, "steering")) <= 0.05)
         if row.get("response_phase") is not None:
-            coast = (coast and row["response_phase"] == 1 and number(row, "response_trial") > 0
+            coast_phase = 2 if row.get("response_trial_id") is not None else 1
+            coast = (coast and row["response_phase"] == coast_phase
+                     and isinstance(trial_id(row), (int, float)) and trial_id(row) > 0
                      and 0 <= number(row, "controller_diagnostics_age_s") <= 0.15)
         if current:
             dt = number(row, "elapsed_s") - current[-1]["elapsed_s"]
             if (not 0 < dt <= 0.2 or row.get("resets") != current[-1].get("resets")
                     or row.get("collision_count") != current[-1].get("collision_count")
-                    or row.get("response_trial") != current[-1].get("response_trial")):
+                    or trial_id(row) != trial_id(current[-1])):
                 finish()
         if coast:
             current.append(row)
@@ -85,6 +95,11 @@ def analyze_response(rows):
 
 
 def main():
+    """Analyze one or more telemetry files and save their combined coast report.
+
+    Tag each accepted interval with its source recording and suggest no more than 80 percent
+    of the smallest fitted deceleration when enough intervals exist.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("recordings", nargs="+", type=Path)
     parser.add_argument("--output", type=Path, required=True)

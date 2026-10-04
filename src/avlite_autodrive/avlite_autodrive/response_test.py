@@ -1,4 +1,4 @@
-"""Bounded throttle-off experiments; no ROS dependencies or configuration writes."""
+"""Bounded, one-coast-per-circuit response experiment, independent of ROS."""
 
 import copy
 import math
@@ -7,85 +7,110 @@ import numpy as np
 
 
 def measurement_config(config, speed):
+    """Build a temporary response profile without changing the saved settings."""
     if not math.isfinite(speed) or not 1.0 <= speed <= 2.5:
         raise ValueError("Response tests require a target from 1.0 to 2.5 m/s")
     result = copy.deepcopy(config)
     result["driving_mode"] = "planned"
-    control = result["c30_control"]
     for key in ("c32_ego_max_velocity", "c35_cruise_velocity"):
-        control[key] = speed
+        result["c30_control"][key] = speed
     result.setdefault("planning", {}).update(
         max_velocity_mps=speed, braking_calibrated=False)
     return result
 
 
-class CoastExperiment:
-    """At most one attempt per circuit, without increasing the normal command.
+class StraightCoastWindow:
+    """Use the same straight-road check before startup and during each coast."""
 
-    A trial is an attempt, not a qualified measurement. The offline analyzer
-    decides whether fresh, straight, zero-throttle feedback supports a fit.
-    """
-
-    def __init__(self, path, curvature, speed, trials, wheelbase, max_steer):
-        if not 1 <= trials <= 20 or not isinstance(trials, int):
-            raise ValueError("Response trials must be an integer from 1 to 20")
+    def __init__(self, path, speed, max_steer):
         self.path = path
-        self.speed, self.trials = speed, trials
-        self.coast_seconds = 0.8
-        self.steer_limit = 0.05 * max_steer  # Same normalized straightness as analyzer.
-        self.curvature_limit = math.tan(self.steer_limit) / wheelbase
-        self.curvature = np.asarray(curvature)
-        # Reserve extra distance for reaction and leave 0.5 m before the bend.
-        self.preview_distance = speed * (self.coast_seconds + 0.25) + 0.5
+        self.steer_limit = 0.05 * max_steer
+        self.preview_distance = max(1.0, speed * 0.8 + 0.5)
         if not any(self.straight_ahead(s) for s in path.s[:-1]):
             raise ValueError("No sufficiently long straight for this response test")
-        self.trial = 0
-        self.phase = 0  # 0 ordinary planned driving, 1 coast, 2 all attempts finished.
-        self.started = None
-        self.last_s = None
-        self.distance = 0.0
-        self.last_attempt_distance = -math.inf
-        self.last_now = None
 
     def straight_ahead(self, s):
-        positions = (s + np.arange(0, self.preview_distance + 0.05, 0.05)) % self.path.length
-        indices = np.searchsorted(self.path.s, positions, side="right") - 1
-        return bool(np.all(np.abs(self.curvature[indices]) <= self.curvature_limit))
+        preview = s + np.linspace(0, self.preview_distance, 12)
+        tangents = self.path.at(preview + 0.05) - self.path.at(preview)
+        angles = np.unwrap(np.arctan2(tangents[:, 1], tangents[:, 0]))
+        return bool(np.ptp(angles) <= 0.06)
 
-    def step(self, now, s, speed, steer, valid, fresh, target):
-        if self.last_now is not None and not 0 < now - self.last_now <= 0.15:
-            fresh = False
-        self.last_now = now
-        if self.last_s is not None:
-            delta = (s - self.last_s + self.path.length / 2) % self.path.length - self.path.length / 2
-            if not 0 <= delta <= 0.75:
-                fresh = False
-            else:
-                self.distance += delta
-        self.last_s = s
-        eligible = (valid and fresh and abs(steer) <= self.steer_limit
-                    and self.straight_ahead(s))
-        if self.phase == 1:
-            if not eligible or now - self.started >= self.coast_seconds or speed <= 0.6:
-                self.phase = 2 if self.trial >= self.trials else 0
-                self.started = None
-        elif (self.phase == 0 and eligible and speed >= self.speed - 0.08
-              and target >= self.speed - 0.01
-              and self.distance - self.last_attempt_distance >= self.path.length * 0.9):
-            self.trial += 1
-            self.phase = 1
-            self.started = now
-            self.last_attempt_distance = self.distance
-        return self.phase == 1
 
-    def diagnostics(self, now):
-        return {"response_phase": self.phase, "response_trial": self.trial,
-                "response_target_speed_mps": self.speed,
-                "response_elapsed_s": now - self.started if self.started is not None else 0.0}
+class ResponseExperiment:
+    CRUISE, COAST, RECOVER, FINISHED, ABORTED = range(1, 6)
+
+    def __init__(self, speed, trials):
+        """Validate the low-speed test request and initialize its phase and lap counters.
+
+        The test supports 1.0-2.5 m/s and at least three independent coast attempts.
+        """
+        if not math.isfinite(speed) or not 1 <= speed <= 2.5:
+            raise ValueError("Response speed must be between 1 and 2.5 m/s")
+        if isinstance(trials, bool) or not isinstance(trials, int) or not 3 <= trials <= 20:
+            raise ValueError("Response trials must be an integer between 3 and 20")
+        self.speed, self.trials = speed, trials
+        self.phase, self.trial = self.CRUISE, 0
+        self.circuit, self.last_trial_circuit = 0, -1
+        self.previous_progress = None
+        self.stable_since = self.coast_since = None
+
+    def reset(self):
+        # Once moving/testing, an interruption invalidates the whole experiment.
+        """Mark a started experiment as aborted after a reset or interruption.
+
+        A reset before the first progress sample leaves it ready to begin.
+        """
+        if self.previous_progress is not None:
+            self.phase = self.ABORTED
+
+    def step(self, now, progress, length, speed, eligible, safe=True):
+        """Advance the experiment by one sample and return whether throttle should be removed.
+
+        Use monotonic seconds, progress around the loop in metres, and measured speed in
+        m/s. Start at most one coast per circuit after speed has settled. End a coast after
+        0.8 seconds or when eligibility is lost, and abort on an unsafe sample.
+        """
+        if self.phase == self.ABORTED:
+            return False
+        if not safe:
+            self.phase = self.ABORTED
+            return False
+        if (self.previous_progress is not None
+                and self.previous_progress > 0.8 * length and progress < 0.2 * length):
+            self.circuit += 1
+        self.previous_progress = progress
+        if self.phase == self.COAST:
+            if eligible and speed > 0.6 and now - self.coast_since < 0.8:
+                return True
+            self.phase = self.FINISHED if self.trial >= self.trials else self.RECOVER
+            self.stable_since = None
+        if self.phase == self.FINISHED:
+            return False
+        if self.last_trial_circuit == self.circuit:
+            return False
+        self.phase = self.CRUISE
+        if not eligible or not 0.9 * self.speed <= speed <= 1.1 * self.speed:
+            self.stable_since = None
+            return False
+        if self.stable_since is None:
+            self.stable_since = now
+        if now - self.stable_since < 0.2:
+            return False
+        self.trial += 1
+        self.last_trial_circuit = self.circuit
+        self.coast_since = now
+        self.phase = self.COAST
+        return True
+
+    def diagnostics(self):
+        """Expose the current phase and trial counters as numeric telemetry fields."""
+        return {"response_phase": self.phase, "response_trial_id": self.trial,
+                "response_trial": self.trial, "response_target_speed_mps": self.speed,
+                "response_trials_requested": self.trials,
+                "response_aborted": self.phase == self.ABORTED}
 
     def metadata(self):
         return {"target_speed_mps": self.speed, "requested_trials": self.trials,
-                "coast_seconds": self.coast_seconds,
-                "straight_steering_limit_rad": self.steer_limit,
-                "preview_distance_m": self.preview_distance,
-                "note": "Attempt counts are not calibration acceptance; inspect response-report.json."}
+                "coast_seconds": 0.8,
+                "note": "Attempt counts are not calibration acceptance; "
+                        "inspect response-report.json."}

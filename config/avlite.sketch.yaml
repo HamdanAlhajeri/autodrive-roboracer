@@ -1,0 +1,46 @@
+# Sketch track commissioning. Use only with the matching custom Unity build.
+# Before driving, set driving.yaml to speed_mps: 2.5 and max_throttle: 0.2.
+shared_settings: driving.yaml
+driving_mode: planned
+planning:
+  map_path: maps/sketch.json
+  max_velocity_mps: ${speed_mps}
+  sample_spacing_m: 0.1
+  acceleration_mps2: 1.0
+  lateral_acceleration_mps2: 3.0
+  braking_deceleration_mps2: 1.5
+  braking_calibrated: false
+  commissioning_speed_mps: 2.5
+  reaction_time_s: 0.25
+  clearance_margin_m: 0.15
+  vehicle_radius_m: 0.24
+  tracking_allowance_m: 0.05
+  wheelbase_m: 0.324
+  curvature_weight: 0.75
+  optimization_iterations: 3
+  optimization_step_limit_m: 0.25
+c30_control:
+  c32_ego_distance_front_axle: 0.324
+  c32_ego_max_velocity: ${speed_mps}
+  c32_ego_max_acceleration: 1.0
+  c32_ego_min_acceleration: -1.5
+  c32_ego_max_steering: 0.5235987756
+  c32_ego_min_steering: -0.5235987756
+  c35_lookahead_distance: 1.0
+  c35_lookahead_speed_gain: 0.4
+  c35_min_lookahead: 0.6
+  c35_max_lookahead: 1.8
+  c35_cruise_velocity: ${speed_mps}
+  c35_bubble_radius: 0.24
+  c35_min_gap_width: 0.15
+  c35_lidar_z_min: -0.2
+  c35_lidar_z_max: 0.3
+  c35_valpha: 1.0
+  c35_vbeta: 0.0
+  c35_vgamma: 0.0
+racing:
+  gap_preview_min_m: 1.5
+  lateral_acceleration_mps2: 3.0
+  braking_deceleration_mps2: 1.5
+  reaction_time_s: 0.25
+  clearance_margin_m: 0.15

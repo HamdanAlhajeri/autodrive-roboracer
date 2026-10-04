@@ -6,7 +6,29 @@ import math
 PREFIX = "/autodrive/roboracer_1"
 
 
+def pose_discontinuous(previous, current, timeout=0.5):
+    """Compare (x, y, speed, monotonic receive time) without a fixed speed cap.
+
+    Keep the original one-metre tolerance at low speed. At high speed permit
+    the distance travelled during a fresh update plus 0.25 m of pose error.
+    A sensor interruption always breaks continuity, even at the same position.
+    """
+    if previous is None:
+        return False
+    dt = current[3] - previous[3]
+    if not math.isfinite(dt) or dt < 0 or dt > timeout:
+        return True
+    reachable = max(abs(previous[2]), abs(current[2])) * dt
+    return math.hypot(current[0] - previous[0], current[1] - previous[1]) > max(
+        1.0, reachable + 0.25)
+
+
 def valid_scan(msg):
+    """Check scan dimensions, range limits and whether enough beams contain usable returns.
+
+    At least half the beams must be finite and within range. This check decides whether the
+    scan can refresh the sensor watchdog.
+    """
     return (
         len(msg.ranges) >= 32
         and math.isfinite(msg.angle_min)
@@ -20,6 +42,11 @@ def valid_scan(msg):
 
 
 def odom_state(msg):
+    """Extract world x/y, heading in radians and body-frame forward speed in m/s.
+
+    Validate and normalize the orientation quaternion before finding yaw. Raise ValueError
+    for invalid data so each caller can invalidate its sensor history.
+    """
     p, q = msg.pose.pose.position, msg.pose.pose.orientation
     v = msg.twist.twist.linear
     values = (p.x, p.y, q.x, q.y, q.z, q.w, v.x, v.y)

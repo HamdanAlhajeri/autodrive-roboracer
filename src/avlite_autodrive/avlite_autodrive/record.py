@@ -5,6 +5,7 @@ import json
 import math
 import signal
 import time
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,14 +21,26 @@ from .ros_utils import PREFIX, odom_state
 from .diagnostics import ACTUATOR_FIELDS, CONTROLLER_FIELDS, diagnostic_values
 from .lap_tracking import LapProgress
 from .track_map import TrackMap
+from .telemetry_health import ActuatorPublicationHealth
 
 
 def main():
+    """Subscribe to simulator telemetry and save a recording with a final run summary.
+
+    Wait for valid odometry before starting the clock, write normal samples at about 10 Hz,
+    and optionally save every odometry update for response analysis. Track laps, incidents
+    and input freshness, and preserve partial results on failure.
+
+    This process only records: the Windows workflow controls when driving starts and stops.
+    Return an exit code indicating completion, interruption or failure.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--seconds", type=float, default=600)
     parser.add_argument("--output", required=True)
     parser.add_argument("--track-map", action="store_true",
                         help="Save a LiDAR hit outline registered with simulator world poses")
+    parser.add_argument("--response-data", action="store_true",
+                        help="Also capture each incoming odometry sample with timing/feedback")
     parser.add_argument("--stop-after-lap", action="store_true")
     parser.add_argument("--laps", type=int, help="Stop after this many observed lap crossings")
     parser.add_argument("--stop-on-incident", action="store_true",
@@ -54,6 +67,9 @@ def main():
     counters = {"distance_m": 0.0, "resets": 0, "max_speed_mps": 0.0,
                 "odometry_samples": 0}
     last_received = {}
+    actuator_health = ActuatorPublicationHealth()
+    response_stream = None
+    response_samples = 0
     previous = None
     counter_names = ("lap_count", "collision_count")
     counter_max_age_s = {name: None for name in counter_names}
@@ -65,6 +81,7 @@ def main():
     stopped = False
 
     def stop(*_):
+        """Request a recording shutdown so the finally block can save its summary."""
         nonlocal stopped
         stopped = True
 
@@ -73,6 +90,11 @@ def main():
 
     def scalar(name, msg):
         # AutoDRIVE sends infinity until the first timed lap; keep valid JSON.
+        """Store one scalar topic value, its receive time and any initial baseline.
+
+        Convert invalid numbers to None and send valid lap-counter updates to the finish-
+        crossing tracker after recording begins.
+        """
         value = msg.data if math.isfinite(msg.data) else None
         if name in counter_names and (value is None or value < 0):
             value = None
@@ -84,7 +106,13 @@ def main():
             progress.observe(value, time.monotonic() - start)
 
     def odom(msg):
-        nonlocal previous, first_motion_elapsed_s, recording_started_stationary
+        """Update pose, speed, travelled distance and motion/reset observations.
+
+        Skip invalid odometry and treat large position jumps separately from driven
+        distance. If response capture is enabled, save this incoming update immediately with
+        its source stamp and receive time.
+        """
+        nonlocal previous, first_motion_elapsed_s, recording_started_stationary, response_samples
         try:
             x, y, heading, speed = odom_state(msg)
         except ValueError:
@@ -107,8 +135,19 @@ def main():
         previous = (x, y)
         state.update(x=x, y=y, heading=heading, speed=speed)
         counters["max_speed_mps"] = max(counters["max_speed_mps"], abs(speed))
+        state["odom_stamp_ns"] = msg.header.stamp.sec * 1_000_000_000 + msg.header.stamp.nanosec
+        state["odom_received_monotonic_s"] = last_received["odom"]
+        if response_stream is not None and start is not None:
+            response_samples += 1
+            write_sample(response_stream, last_received["odom"], {
+                "response_data_version": 1, "capture_mode": "odometry",
+                "sample_sequence": response_samples,
+            })
 
     def command(msg):
+        """Record AVLite's requested steering angle and acceleration, replacing invalid values
+        with None.
+        """
         last_received["avlite_command"] = time.monotonic()
         state.update(
             avlite_steer_rad=(
@@ -120,16 +159,23 @@ def main():
         )
 
     def reset(msg):
+        """Count a simulator reset and clear pending LiDAR/pose pairings for the outline."""
         if msg.data:
             counters["resets"] += 1
             if track_map is not None:
                 track_map.reset()
 
     def scan(msg):
+        """Pass scans to the outline builder once recording has started and map capture is
+        enabled.
+        """
         if track_map is not None and start is not None:
             track_map.add_scan(msg, time.monotonic())
 
     def diagnostics(name, fields, msg):
+        """Merge an allowed diagnostic snapshot into recording state and update its receive
+        time.
+        """
         values = diagnostic_values(msg.data, fields)
         if values is not None:
             state.update(values)
@@ -138,6 +184,11 @@ def main():
     def race_plan(msg):
         # Capture the plan actually used by the running controller, not a later
         # recomputation using possibly edited files. The topic is latched at startup.
+        """Save the plan, map and effective settings published by the running controller.
+
+        Validate the artifact shape before writing companion JSON files. Using the retained
+        ROS message preserves what actually drove the run, even if YAML files change later.
+        """
         try:
             artifact = json.loads(msg.data)
             if (artifact.get("version") != 1 or artifact.get("frame_id") != "world"
@@ -154,6 +205,11 @@ def main():
             node.get_logger().error(f"Ignoring invalid race plan: {exc}")
 
     def check_counters(now, elapsed):
+        """Check whether lap and collision counters remain present, fresh and valid.
+
+        Keep the first telemetry failure and note if the car moved before a baseline
+        existed. A counter increase alone is not enough to certify a clean run.
+        """
         nonlocal counter_telemetry_status, counter_telemetry_error
         nonlocal counter_baseline_before_motion
         missing, stale, invalid = [], [], []
@@ -185,13 +241,19 @@ def main():
                     + ", ".join(missing)
                 )
 
-    def write_sample(stream, now):
+    def write_sample(stream, now, extra=None):
+        """Write and flush one JSON line containing current values, counts and input ages.
+
+        UTC labels the recording for a person; elapsed and freshness times use the monotonic
+        clock. extra adds source-rate response metadata when needed.
+        """
         sample = {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
             "elapsed_s": now - start,
             **state,
             **counters,
             **{key + "_age_s": now - received for key, received in last_received.items()},
+            **(extra or {}),
         }
         stream.write(json.dumps(sample, allow_nan=False) + "\n")
         stream.flush()
@@ -225,8 +287,23 @@ def main():
     error = None
     incident_detected = False
     stop_reason = "time_limit"
+
+    def check_actuator(now, elapsed):
+        """Update the command-publication check using current motion and startup timing.
+
+        The recorder uses this result when deciding whether lap screening has enough
+        reliable actuator evidence.
+        """
+        actuator_health.check(
+            now, state, last_received, moving=abs(state.get("speed", 0)) > 0.1,
+            startup_expired=elapsed >= args.wait_for_odom,
+        )
+
     try:
-        with path.open("w") as stream:
+        with ExitStack() as files:
+            stream = files.enter_context(path.open("w"))
+            if args.response_data:
+                response_stream = files.enter_context(path.with_suffix(".response.jsonl").open("w"))
             print(f"Waiting up to {args.wait_for_odom:g}s for valid simulator odometry...",
                   flush=True)
             while not stopped and "odom" not in last_received:
@@ -256,6 +333,7 @@ def main():
                 now = time.monotonic()
                 elapsed = now - start
                 check_counters(now, elapsed)
+                check_actuator(now, elapsed)
                 if now - last_received["odom"] >= args.odom_timeout:
                     error = (
                         f"Valid odometry stopped for {args.odom_timeout:g}s. Partial data saved. "
@@ -264,6 +342,10 @@ def main():
                     )
                 if progress.requested_laps is not None and counter_telemetry_error is not None:
                     error = error or counter_telemetry_error
+                if progress.requested_laps is not None and actuator_health.error:
+                    error = error or actuator_health.error
+                if args.response_data and state.get("response_aborted"):
+                    error = error or "Response controller aborted; inspect response diagnostics"
                 if elapsed >= next_sample:
                     write_sample(stream, now)
                     next_sample = elapsed + 0.1
@@ -289,11 +371,17 @@ def main():
                 # Persist the event and final input ages for plots and CSV too.
                 now = time.monotonic()
                 check_counters(now, now - start)
+                check_actuator(now, now - start)
                 if progress.requested_laps is not None and counter_telemetry_error is not None:
                     error = error or counter_telemetry_error
+                if progress.requested_laps is not None and actuator_health.error:
+                    error = error or actuator_health.error
                 write_sample(stream, now)
     except KeyboardInterrupt:
         stopped = True
+    except Exception as exc:
+        error = f"Recorder failed: {exc}"
+        raise
     finally:
         summary = {
             "status": "failed" if error else "interrupted" if stopped else "completed",
@@ -313,6 +401,14 @@ def main():
             "counter_telemetry_error": counter_telemetry_error,
             "counter_max_age_s": counter_max_age_s,
             "counter_baseline_before_motion": counter_baseline_before_motion,
+            "actuator_publication_valid": actuator_health.valid,
+            "actuator_publication_error": actuator_health.error,
+            "actuator_publication_max_age_s": actuator_health.max_age_s,
+            "response_capture": {
+                "enabled": args.response_data, "samples": response_samples,
+                "clock": "monotonic receive time", "odom_stamp_origin": "bridge receive time",
+                "file": path.with_suffix(".response.jsonl").name if args.response_data else None,
+            },
             "counter_telemetry_valid": bool(
                 counter_telemetry_status == "fresh" and counter_telemetry_error is None
                 and counter_baseline_before_motion
@@ -336,11 +432,13 @@ def main():
         }
         summary["clean_run"] = bool(
             summary["clean_lap"] and summary["counter_telemetry_valid"]
+            and summary["actuator_publication_valid"]
             and not progress.counter_discontinuity
             and (progress.requested_laps is None
                  or (progress.target_reached and stop_reason == "lap_target"))
         )
-        summary["clean_lap"] = summary["clean_lap"] and summary["counter_telemetry_valid"]
+        summary["clean_lap"] = (summary["clean_lap"] and summary["counter_telemetry_valid"]
+                                and summary["actuator_publication_valid"])
         if summary["clean_run"]:
             screening_failure_reason = None
         elif error or counter_telemetry_error:
@@ -349,6 +447,8 @@ def main():
             screening_failure_reason = "Recording was interrupted"
         elif not summary["counter_telemetry_valid"]:
             screening_failure_reason = "Missing or incomplete counter telemetry"
+        elif not summary["actuator_publication_valid"]:
+            screening_failure_reason = actuator_health.error or "Missing actuator publication"
         elif incident_detected:
             screening_failure_reason = "Collision, reset or counter discontinuity observed"
         elif not progress.target_reached:
