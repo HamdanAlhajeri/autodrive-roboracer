@@ -92,6 +92,20 @@ editor version described in [sketch setup](sketch-track.md). `sketch-test` accep
 `test` runs command routing and response workflow tests with Docker mocked. See
 [CONTRIBUTING](../CONTRIBUTING.md) for Python/ROS testing.
 
+## Jetson car
+
+```powershell
+.\avlite.ps1 car -Action status -JetsonHost racer@jetson.local
+.\avlite.ps1 car -Action map-start -JetsonHost racer@jetson.local -Session <from status>
+.\avlite.ps1 car -Action race-start -JetsonHost racer@jetson.local -Session <from status>
+.\avlite.ps1 car -Action stop -JetsonHost racer@jetson.local
+```
+
+`car` uses key-based SSH (`BatchMode`, so it fails instead of prompting) and runs
+`scripts/jetson/roboracer` on the Jetson. Override that path with `-RemoteCommand`.
+`map-start` and `race-start` keep running and send a heartbeat every 0.2 s. Close
+the window or press Ctrl+C to stop the car. See the [Jetson guide](jetson.md).
+
 ## Migration from the old commands
 
 The old root scripts have been removed. Update local shortcuts using this table.

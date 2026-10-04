@@ -1,9 +1,13 @@
 # AVLite plugin for the real car
 
+> **Superseded (4 October 2026).** The implemented design uses SLAM Toolbox for
+> mapping and localization instead of wrapping AVLite ICP. See
+> [LOCALIZATIONPLAN.md](LOCALIZATIONPLAN.md) and the [Jetson guide](../jetson.md).
+> This page remains for its hardware-inspection and remote-operation notes.
+
 Agreed direction, 20 September 2026: prepare mapping, localization and remote
-operation on the Ubuntu Jetson car. **Only this plan and the inspection script
-exist so far.** The hardware plugin, remote service and estimated-pose driving
-are not implemented or validated.
+operation on the Ubuntu Jetson car. At the time of writing, only this plan and the
+inspection script existed.
 
 Jetson model, JetPack/ROS versions, sensor/motor models, topic interfaces and
 physical stop controls still need identification. Simulator poses and actuator

@@ -33,6 +33,7 @@ class PlanningConfig:
     curvature_weight: float = 0.75
     optimization_iterations: int = 3
     optimization_step_limit_m: float | None = None
+    frame_id: str = "world"
 
     @classmethod
     def from_config(cls, config):
@@ -47,7 +48,7 @@ class PlanningConfig:
         values.setdefault("max_velocity_mps", control["c32_ego_max_velocity"])
         settings = cls(**values)
         for key, value in asdict(settings).items():
-            if key in ("map_path", "braking_calibrated"):
+            if key in ("map_path", "braking_calibrated", "frame_id"):
                 continue
             if key == "optimization_step_limit_m" and value is None:
                 continue
@@ -56,6 +57,8 @@ class PlanningConfig:
                 raise ValueError(f"planning.{key} must be finite and positive")
         if not isinstance(settings.map_path, str) or not settings.map_path.strip():
             raise ValueError("planning.map_path is required")
+        if not isinstance(settings.frame_id, str) or not settings.frame_id.strip():
+            raise ValueError("planning.frame_id must be a frame name")
         if not isinstance(settings.braking_calibrated, bool):
             raise ValueError("planning.braking_calibrated must be true or false")
         if settings.curvature_weight > 1 or not isinstance(settings.optimization_iterations, int):
@@ -212,7 +215,7 @@ def prepare_plan(config, config_path):
         source = Path(config_path).resolve().parent / source
     data = json.loads(source.read_text(encoding="utf-8"))
     left, right, corridor = validate_map(
-        data, settings.vehicle_radius_m, settings.tracking_allowance_m)
+        data, settings.vehicle_radius_m, settings.tracking_allowance_m, settings.frame_id)
     # Close both polylines explicitly: upstream nearest-boundary searches use LineString.
     race_map = RaceMap(source_path=str(source),
                        left_bound=np.vstack([left, left[0]]),
@@ -267,7 +270,7 @@ def prepare_plan(config, config_path):
                 raise ValueError("Planned envelope intersects a recorded LiDAR obstacle")
     canonical_map = json.dumps(data, sort_keys=True, allow_nan=False)
     artifact = {
-        "version": 1, "frame_id": "world", "units": "m", "closed": True,
+        "version": 1, "frame_id": settings.frame_id, "units": "m", "closed": True,
         "planner": "AutoDRIVERacePlanner(GlobalRacePlanner)",
         "map_sha256": hashlib.sha256(canonical_map.encode()).hexdigest(),
         "map": data, "settings": asdict(settings), "resolved_config": config,

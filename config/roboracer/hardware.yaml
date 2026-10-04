@@ -1,0 +1,77 @@
+# Jetson RoboRacer hardware profile. null = not measured yet.
+# Recording needs only frames, topics and transform owners. The supervisor refuses
+# autonomous motion until every measurement below is filled in from commissioning.
+# Never copy simulator values into this file: they are not hardware measurements.
+version: 1
+name: jetson-roboracer
+
+# Replace with the names reported by tools/inspect-jetson.sh.
+frames:
+  map: map
+  odom: odom
+  base_link: base_link   # Rear-axle centre; AVLite poses and the racing line use it.
+  laser: laser
+  imu: imu
+
+topics:
+  scan: /scan                    # sensor_msgs/LaserScan
+  odom: /odom                    # nav_msgs/Odometry from the installed motor driver
+  imu: null                      # sensor_msgs/Imu, if fitted
+  slam_pose: /pose               # SLAM Toolbox pose (PoseWithCovarianceStamped)
+  slam_graph: /slam_toolbox/graph_visualization  # Corrected pose-graph nodes
+  drive_output: /drive           # ackermann_msgs/AckermannDriveStamped to the driver
+  manual_input: null             # Teleop AckermannDriveStamped, if manual takes over here
+
+# Exactly one publisher per transform. The recording check flags any frame that is
+# published by more than one parent or by both /tf and /tf_static.
+transform_owners:
+  odom->base_link: motor driver odometry
+  base_link->laser: static_transform_publisher
+  map->odom: slam_toolbox
+
+# Static sensor mounts relative to base_link (metres, radians). Measure on the car.
+mounts:
+  laser: {x_m: null, y_m: null, yaw_rad: null}
+
+vehicle:
+  wheelbase_m: null
+  width_m: null               # Overall width; half is the footprint radius.
+  length_m: null
+  rear_axle_to_front_m: null  # Rear axle to front bumper.
+
+steering:
+  max_angle_rad: null         # Largest commanded angle the servo reaches without binding.
+  positive_left: null         # true if a positive steering_angle turns the car left.
+  center_offset_rad: 0.0      # Added to every command after the sign is applied.
+
+motor:
+  max_command_speed_mps: null # Hard clamp on speed sent to the driver.
+  stop_command_speed_mps: 0.0 # Ackermann speed used to stop; verify it brakes, not coasts.
+
+# Commissioning results (wheels clear first, then on the floor at low speed).
+measurements:
+  command_latency_s: null          # Command published -> wheels respond.
+  braking_deceleration_mps2: null  # Measured on the track surface.
+  max_acceleration_mps2: null
+  stop_test_speed_mps: null        # Highest speed at which stopping was measured.
+  stopping_distance_m: null        # Measured distance from that speed.
+
+limits:
+  mapping_speed_mps: null     # Slow autonomous mapping lap.
+  racing_speed_mps: null      # Ceiling for the racing profile; <= stop_test_speed_mps.
+
+timing:
+  command_timeout_s: 0.25     # Actuator stops if no fresh supervisor command arrives.
+  authorization_timeout_s: 1.0 # Supervisor stops if laptop heartbeats stop.
+  sensor_timeout_s: 0.25
+  pose_timeout_s: 0.3
+
+# READY thresholds. Establish from vehicle size, track clearance and measured behaviour.
+localization:
+  max_position_stddev_m: null
+  max_yaw_stddev_rad: null
+  min_scan_alignment: null         # Fraction of scan endpoints near mapped walls.
+  scan_alignment_tolerance_m: 0.10
+  max_motion_mismatch_m: null      # Map-frame vs odometry motion per pose update.
+  max_motion_mismatch_rad: null
+  stable_duration_s: 2.0

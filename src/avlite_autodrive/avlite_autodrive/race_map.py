@@ -101,8 +101,12 @@ def corridor_polygon(left, right):
     return Polygon(outer.exterior.coords, [inner.exterior.coords])
 
 
-def validate_map(data, radius=0.24, allowance=0.05):
+def validate_map(data, radius=0.24, allowance=0.05, frame_id="world"):
     """Check map units, boundary pairing, driving direction and usable track width.
+
+    frame_id is the coordinate frame the caller drives in: the simulator's "world" by
+    default, or the hardware SLAM map's declared frame. A map without a frame_id is
+    treated as "world", so it can never be mistaken for a hardware map.
 
     The paired midpoint path must stay inside the corridor with no large sampling gaps.
     Return validated left/right arrays and the corridor polygon; full vehicle clearance
@@ -110,8 +114,8 @@ def validate_map(data, radius=0.24, allowance=0.05):
     """
     if not isinstance(data, dict):
         raise ValueError("RaceMap must be an object")
-    if data.get("frame_id", "world") != "world" or data.get("units", "m") != "m":
-        raise ValueError("RaceMap must use world coordinates in metres")
+    if data.get("frame_id", "world") != frame_id or data.get("units", "m") != "m":
+        raise ValueError(f"RaceMap must use {frame_id} coordinates in metres")
     if data.get("closed", True) is not True:
         raise ValueError("Planned driving requires a closed track")
     left = xy_array(data.get("LeftBound"), "LeftBound")

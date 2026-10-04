@@ -29,6 +29,12 @@ function global:Start-Process {
     return $global:player
 }
 function global:git { return 'test-fixture' }
+$global:sshCalls = [Collections.Generic.List[object]]::new()
+$global:sshFailure = $false
+function global:ssh {
+    $global:sshCalls.Add(@($args))
+    $global:LASTEXITCODE = if ($global:sshFailure) { 255 } else { 0 }
+}
 function global:curl.exe {
     # Exercise real ZIP extraction with a local fixture, without network access.
     $destination = $args[[Array]::IndexOf($args, '--output') + 1]
@@ -64,7 +70,8 @@ try {
         # Help must not run a command or prompt for mandatory map parameters.
         & $cli help | Out-Null
         foreach ($command in @('start', 'stop', 'restart', 'status', 'logs', 'laps', 'record',
-                'response', 'speed', 'map', 'sketch-map', 'sketch-build', 'sketch-test', 'test')) {
+                'response', 'speed', 'map', 'sketch-map', 'sketch-build', 'sketch-test', 'test',
+                'car')) {
             & $cli $command -Help | Out-Null
         }
         Assert ($global:calls.Count -eq 0) 'Help invoked Docker'
@@ -154,6 +161,21 @@ try {
         & $cli sketch-map
         Assert ($global:calls[$global:calls.Count - 1] -contains "${fixture}/assets/tracks/sketch_track:/track:ro") 'Sketch assets mount drifted'
         Write-Output 'PASS: offline tools, recording paths with spaces and overwrite protection'
+
+        $global:sshCalls.Clear()
+        & $cli car -Action status -JetsonHost 'racer@jetson.local' | Out-Null
+        & $cli car -Action stop -JetsonHost 'racer@jetson.local' | Out-Null
+        Assert ($global:sshCalls.Count -eq 2) 'Car commands did not reach SSH'
+        Assert ($global:sshCalls[0] -contains 'BatchMode=yes') 'SSH may prompt instead of failing'
+        Assert ($global:sshCalls[0][-1] -eq 'status' -and $global:sshCalls[1][-1] -eq 'stop') 'Car action was not forwarded'
+        Expect-Failure { & $cli car -Action status -JetsonHost 'jetson;reboot' } 'Unsafe host accepted'
+        Expect-Failure { & $cli car -Action launch -JetsonHost 'jetson' } 'Unknown car action accepted'
+        Expect-Failure { & $cli car -Action status -JetsonHost 'jetson' -RemoteCommand 'rm -rf' } 'Unsafe remote command accepted'
+        $global:sshFailure = $true
+        Expect-Failure { & $cli car -Action status -JetsonHost 'jetson' } 'SSH failures were hidden'
+        $global:sshFailure = $false
+        Assert ($global:sshCalls.Count -eq 3) 'Invalid car options reached SSH'
+        Write-Output 'PASS: Jetson car commands over SSH'
     } finally { Pop-Location }
 } finally {
     $resolved = [IO.Path]::GetFullPath($testRoot)
