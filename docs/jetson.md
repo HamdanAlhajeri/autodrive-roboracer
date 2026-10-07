@@ -7,6 +7,25 @@ Jetson, against real sensors, or with SLAM Toolbox yet. The hardware profile is
 deliberately unfilled. Until it is filled from measurements, the supervisor and
 actuator refuse to command motion.
 
+## Checklist to get it running
+
+Work through these in order. Nothing autonomous moves until step 3 is done.
+
+- [ ] **1. Inspect the Jetson** — run `bash tools/inspect-jetson.sh` and copy the reported frame/topic names into `config/roboracer/hardware.yaml`. Leave all measurement fields `null`.
+- [ ] **2. Record and verify sensors** — drive a slow manual teleop lap, `recorder record`, `recorder export`, then `report`. Resolve every `fail` before continuing.
+- [ ] **3. Commission the hardware** — record stop tests, run `commissioning.py`, and fill the measured values (`localization.*`, `limits.*`, `vehicle.*`, `mounts.laser`) into `hardware.yaml`. This is the gate that unblocks autonomous motion.
+- [ ] **4. Validate mapping + localization offline** — replay two separate manual recordings through SLAM Toolbox (map on one, localize on the other) and run the localization report with `--require-map-frame`. Check that every threshold passes.
+- [ ] **5. Install the Jetson runtime** — install ROS 2, SLAM Toolbox and the pinned AVLite revision for the JetPack version found in step 1. The desktop Docker image is not the deployment image.
+- [ ] **6. Stationary hardware tests** — motors disabled or wheels clear: steering direction, actuator bounds, manual override, process failure, connection loss. None may cause movement.
+- [ ] **7. First autonomous mapping lap** — `ros2 launch avlite_roboracer roboracer.launch.py`, then `.\avlite.ps1 car -Action map-start` from the laptop. Verify the car stops near the start, map is accepted, and state reaches `READY`.
+- [ ] **8. Track acceptance** — `race-start`, several localized laps, verified `stop`. Record scan alignment, localization error and stop response. Raise speed only after thresholds are established.
+
+Still unverified on real hardware (watch for these in steps 4–7):
+- SLAM Toolbox service, topic and parameter names on the installed version
+- `ros2 bag record --use-sim-time` support in the installed rosbag2
+- Motor driver response to a speed-0 stop command
+- AVLite Follow the Gap with the real LiDAR mount
+
 ## How it fits together
 
 ```mermaid
