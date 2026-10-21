@@ -50,7 +50,21 @@ then actuator/bridge, and asks the selected simulator to close. Use the same
 
 # Offline plan inspection; TargetSpeedMps is a comparison, not a settings edit.
 .\avlite.ps1 speed -TargetSpeedMps 10
+
+# Speed-tuning matrix: plan checks only, then all stages, then chosen stages.
+.\avlite.ps1 sweep -DryRun
+.\avlite.ps1 sweep
+.\avlite.ps1 sweep -Stages B,C -Laps 3
 ```
+
+`sweep` runs stage A (speed-loop gain `c35_valpha` 2/3/4), B (cornering
+3.5-5.0 m/s²), C (braking 3.5 m/s²) and D (acceleration 2.5/3.0 m/s²). Each test
+edits `config/avlite.yaml`, runs the offline plan check and records laps with
+`-ResetSimulator`. B-D stop at the first failure; a failure is retried once
+(`-Retries`). A pass needs every lap, no collision/reset and path deviation p95
+at most `-MaxPathDeviationM` (0.10 m). The fastest passing value carries forward.
+`avlite.yaml` is always restored; best settings are reported, not applied.
+Results go to `log/sweeps/<run>/results.md` and `results.csv`.
 
 `laps` defaults to one lap and a 600-second limit. It stops on the requested lap
 count, a collision/reset, a failure or the time limit. Optional `-ResetSimulator`

@@ -3,6 +3,6 @@
 # Practice track speed ceiling. The planner still slows for corners and braking;
 # the requested ceiling is not a promise of achieved speed.
 # Run .\avlite.ps1 speed to inspect the actual planned range before driving.
-speed_mps: 10.0
+speed_mps: 20
 # Normalized throttle ceiling [0, 1]; independent of the requested speed.
 max_throttle: 0.5

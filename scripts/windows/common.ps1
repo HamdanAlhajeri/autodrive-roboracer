@@ -35,6 +35,7 @@ function Get-AvliteCommands {
         record = @{ Script = 'record.ps1'; Preset = @{}; Description = 'Capture telemetry without starting or stopping driving' }
         response = @{ Script = 'response.ps1'; Preset = @{}; Description = 'Measure response, replot a response run, or analyze ordinary coasting' }
         speed = @{ Script = 'speed.ps1'; Preset = @{}; Description = 'Inspect configured speed limits and plan without driving' }
+        sweep = @{ Script = 'sweep.ps1'; Preset = @{}; Description = 'Run the speed-tuning test matrix and tabulate every run' }
         map = @{ Script = 'map.ps1'; Preset = @{}; Description = 'Build a race map from a clean recording' }
         'sketch-map' = @{ Script = 'sketch-map.ps1'; Preset = @{}; Description = 'Convert supplied sketch assets to a validated map and profile' }
         'sketch-build' = @{ Script = 'sketch-build.ps1'; Preset = @{}; Description = 'Create/build the sketch track in an existing Unity source checkout' }

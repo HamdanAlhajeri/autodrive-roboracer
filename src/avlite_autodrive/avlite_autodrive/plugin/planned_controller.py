@@ -74,6 +74,7 @@ class AutoDRIVEPlannedController(PurePursuitController):
         super().reset()
         self._s = None
         self._target_speed = 0.0
+        self._feedforward = 0.0
         self.diagnostics = {"planned_mode": 1, "target_velocity_mps": 0.0,
                             "speed_limit_reason": 6, "plan_valid": 0}
 
@@ -85,6 +86,7 @@ class AutoDRIVEPlannedController(PurePursuitController):
         """
         super().reset()
         self._s = None
+        self._feedforward = 0.0
         self.diagnostics.update(target_velocity_mps=0.0, speed_limit_reason=reason,
                                 plan_valid=0, acceleration_saturated=True)
         self.cmd = ControlCommand(steer=0.0, acceleration=self.ego_min_acceleration)
@@ -117,11 +119,14 @@ class AutoDRIVEPlannedController(PurePursuitController):
 
         Ignore the upstream waypoint target in favour of our interpolated value. When
         measured speed is above it, request at least the configured deceleration.
+        Otherwise add any planned acceleration, so feedback only corrects the error.
         """
         target = self._target_speed
         acc = super().velocity_pid(ego, target)
         if ego.velocity > target + 0.05:
             acc = min(acc, -self.settings.braking_deceleration_mps2)
+        else:
+            acc = min(acc + self._feedforward, self.ego_max_acceleration)
         return float(acc)
 
     def obstacle_distance(self, ego, sensors, steer, s):
@@ -213,6 +218,13 @@ class AutoDRIVEPlannedController(PurePursuitController):
             obstacle_limit = min(st.speed_limit, 2 * braking * distance / (
                 math.hypot(bt, math.sqrt(2 * braking * distance)) + bt))
         self._target_speed = min(st.speed_limit, profile_limit, obstacle_limit)
+        # Profile acceleration from d(v^2)/ds over one sample. Apply it only while the
+        # current planned speed is the target, never under a braking or obstacle limit.
+        self._feedforward = 0.0
+        if st.acceleration_feedforward and self._target_speed >= planned - 1e-6:
+            ahead = float(self.path.velocity_at(s + st.sample_spacing_m,
+                                                self.prepared.global_plan.velocity))
+            self._feedforward = max(0.0, (ahead**2 - planned**2) / (2 * st.sample_spacing_m))
         reason = 5 if not st.braking_calibrated and st.max_velocity_mps > st.speed_limit else 0
         if profile_limit < st.speed_limit - 1e-5:
             reason = 1
@@ -221,6 +233,7 @@ class AutoDRIVEPlannedController(PurePursuitController):
         self.diagnostics.update(
             planned_speed_mps=planned, target_velocity_mps=self._target_speed,
             speed_limit_reason=reason, obstacle_speed_limit_mps=obstacle_limit,
+            planned_acceleration_mps2=self._feedforward,
             clearance_m=clearance if math.isfinite(clearance) else None,
             path_progress_m=s, path_deviation_m=cte,
         )

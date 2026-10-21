@@ -32,12 +32,21 @@ def main():
     settings = prepared.settings
     if actuator.max_speed != settings.max_velocity_mps:
         parser.error("Planner and actuator speed ceilings differ")
+    control = config["c30_control"]
+    if (control["c32_ego_max_acceleration"] > actuator.max_acceleration
+            or -control["c32_ego_min_acceleration"] > actuator.max_deceleration):
+        parser.error("Controller acceleration limits exceed the actuator's; the actuator "
+                     "would clip them")
     low, high = min(prepared.global_plan.velocity), max(prepared.global_plan.velocity)
     target = args.target_mps
     print(f"Shared ceiling: {actuator.max_speed:.3f} m/s; "
           f"effective planner ceiling: {settings.speed_limit:.3f} m/s")
     print(f"Validated map profile: {low:.3f} to {high:.3f} m/s; "
           f"lap length: {prepared.path.length:.2f} m")
+    print(f"Acceleration: planner {settings.acceleration_mps2:.2f} / actuator "
+          f"{actuator.max_acceleration:.2f} m/s^2; braking: planner "
+          f"{settings.braking_deceleration_mps2:.2f} / actuator "
+          f"{actuator.max_deceleration:.2f} m/s^2")
     print(f"Throttle cap: {actuator.max_throttle:.3f}; feedforward at shared ceiling: "
           f"{actuator.feedforward * actuator.max_speed:.3f} (model demand, not calibration)")
     if actuator.feedforward * actuator.max_speed > actuator.max_throttle:

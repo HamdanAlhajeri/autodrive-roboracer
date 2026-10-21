@@ -5,11 +5,20 @@ planning:
   map_path: maps/practice.json  # Relative to this YAML; available under /config in Docker.
   max_velocity_mps: ${speed_mps}
   sample_spacing_m: 0.1
-  acceleration_mps2: 1.0
-  lateral_acceleration_mps2: 3.0
-  braking_deceleration_mps2: 1.5  # Provisional; replace with measured throttle-off response.
-  braking_calibrated: false
-  commissioning_speed_mps: 2.5  # Until braking is measured, planned mode cannot exceed this.
+  # The planned top speed comes from these limits and the short practice lap, not from
+  # speed_mps. Values from sweep log/sweeps/20261021-161254 test D-acc3p0: three clean
+  # laps, 7.80 s rolling lap, 6.61 m/s peak (plan 6.85 m/s). Every sweep step passed,
+  # so these are not measured grip/braking limits.
+  # Keep these within max_acceleration/max_deceleration in actuator.yaml.
+  acceleration_mps2: 3.0
+  lateral_acceleration_mps2: 5.0
+  # Below the qualified 3.76 m/s^2 suggestion from 20260922-134928-707-4-laps.
+  # See docs/validation/high-speed-20260922.md.
+  braking_deceleration_mps2: 3.5
+  braking_calibrated: true  # Measured at 2.5 m/s; higher-speed screening is pending.
+  commissioning_speed_mps: 2.5  # Fallback ceiling when braking_calibrated is false.
+  # Add the profile's own acceleration to the speed loop instead of waiting for error.
+  acceleration_feedforward: true
   reaction_time_s: 0.25
   clearance_margin_m: 0.15
   vehicle_radius_m: 0.24
@@ -20,8 +29,8 @@ planning:
 c30_control:
   c32_ego_distance_front_axle: 0.324
   c32_ego_max_velocity: ${speed_mps}
-  c32_ego_max_acceleration: 1.0
-  c32_ego_min_acceleration: -2.0
+  c32_ego_max_acceleration: 3.0
+  c32_ego_min_acceleration: -3.5
   c32_ego_max_steering: 0.5235987756
   c32_ego_min_steering: -0.5235987756
   c35_lookahead_distance: 1.0
@@ -34,7 +43,10 @@ c30_control:
   c35_min_gap_width: 0.15
   c35_lidar_z_min: -0.2
   c35_lidar_z_max: 0.3
-  c35_valpha: 1.0
+  # Speed P gain: acceleration request = c35_valpha * (target - measured), in 1/s.
+  # At 1.0 the car trailed the plan by ~1.2 m/s on straights (20261021-150958-599-a2-b3).
+  # With acceleration_feedforward, 2.0 lapped ~0.25 s faster than 3.0 or 4.0 (sweep A).
+  c35_valpha: 2.0
   c35_vbeta: 0.0
   c35_vgamma: 0.0
 

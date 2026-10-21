@@ -25,6 +25,7 @@ class PlanningConfig:
     braking_deceleration_mps2: float = 1.5
     braking_calibrated: bool = False
     commissioning_speed_mps: float = 2.5
+    acceleration_feedforward: bool = False
     reaction_time_s: float = 0.25
     clearance_margin_m: float = 0.15
     vehicle_radius_m: float = 0.24
@@ -48,7 +49,8 @@ class PlanningConfig:
         values.setdefault("max_velocity_mps", control["c32_ego_max_velocity"])
         settings = cls(**values)
         for key, value in asdict(settings).items():
-            if key in ("map_path", "braking_calibrated", "frame_id"):
+            if key in ("map_path", "braking_calibrated", "acceleration_feedforward",
+                       "frame_id"):
                 continue
             if key == "optimization_step_limit_m" and value is None:
                 continue
@@ -61,6 +63,8 @@ class PlanningConfig:
             raise ValueError("planning.frame_id must be a frame name")
         if not isinstance(settings.braking_calibrated, bool):
             raise ValueError("planning.braking_calibrated must be true or false")
+        if not isinstance(settings.acceleration_feedforward, bool):
+            raise ValueError("planning.acceleration_feedforward must be true or false")
         if settings.curvature_weight > 1 or not isinstance(settings.optimization_iterations, int):
             raise ValueError("Invalid optimization weight or iteration count")
         if settings.sample_spacing_m > 0.1:

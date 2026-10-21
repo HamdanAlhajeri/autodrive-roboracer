@@ -16,7 +16,7 @@ Use a command with -Help to inspect its options without starting the operation.
 param(
     [Parameter(Position = 0)]
     [ValidateSet('help', 'start', 'stop', 'restart', 'status', 'logs', 'laps',
-        'record', 'response', 'speed', 'map', 'sketch-map', 'sketch-build',
+        'record', 'response', 'speed', 'sweep', 'map', 'sketch-map', 'sketch-build',
         'sketch-test', 'test', 'car')]
     [string]$Command = 'help',
     [switch]$Help

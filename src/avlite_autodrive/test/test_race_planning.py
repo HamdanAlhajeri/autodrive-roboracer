@@ -1,6 +1,7 @@
 """Real pinned AVLite planning, geometry, periodic control and stopping regressions."""
 
 import copy
+from dataclasses import replace
 import json
 import math
 from types import SimpleNamespace
@@ -336,3 +337,30 @@ def test_missing_hit_classification_fails_closed(prepared):
     cmd = controller.control(state_at(prepared, 0), prepared.global_plan, sensors=frame)
     assert cmd.acceleration == -2.0
     assert controller.diagnostics["speed_limit_reason"] == 4
+
+
+def test_acceleration_feedforward_follows_rising_profile(prepared, profile):
+    # Replace the constant circle profile with a ramp so the plan accelerates.
+    length = prepared.path.length
+    v = np.sqrt(1.0 + 3.0 * prepared.path.s[:-1] / length)
+    prepared.global_plan.velocity = v.tolist()
+    s = length / 2
+    planned = float(prepared.path.velocity_at(s, v))
+    expected = 3.0 / (2 * length)
+    outputs = {}
+    for enabled in (False, True):
+        controller = AutoDRIVEPlannedController(prepared)
+        controller.settings = replace(prepared.settings, acceleration_feedforward=enabled)
+        cmd = controller.control(state_at(prepared, s, speed=planned),
+                                 prepared.global_plan, sensors=clear_scan())
+        outputs[enabled] = (cmd.acceleration, controller.diagnostics["planned_acceleration_mps2"])
+    assert outputs[False][1] == 0.0
+    assert outputs[True][1] == pytest.approx(expected, rel=0.05)
+    assert outputs[True][0] - outputs[False][0] == pytest.approx(expected, rel=0.05)
+    # Above the target, braking still wins over the feedforward term.
+    cmd = controller.control(state_at(prepared, s, speed=planned + 0.5),
+                             prepared.global_plan, sensors=clear_scan())
+    assert cmd.acceleration <= -prepared.settings.braking_deceleration_mps2
+    profile["planning"]["acceleration_feedforward"] = "yes"
+    with pytest.raises(ValueError, match="acceleration_feedforward"):
+        PlanningConfig.from_config(profile)

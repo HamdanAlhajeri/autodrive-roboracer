@@ -1,0 +1,11 @@
+Stage,Test,Change,PlanMaxMps,Result,Laps,Collisions,Resets,AvgMps,RollingMps,RollingLapS,PeakMps,DevP95M,Note
+A,A-valpha2,c35_valpha=2,5.696,PASS,3,0,0,2.636,2.885,9.624,5.472,0.039,
+A,A-valpha3,c35_valpha=3,5.696,PASS,3,0,0,2.592,2.817,9.857,5.532,0.033,
+A,A-valpha4,c35_valpha=4,5.696,PASS,3,0,0,2.619,2.828,9.869,5.532,0.04,
+B,B-lat3p5,lateral_acceleration_mps2=3.5,5.809,PASS,3,0,0,2.766,3.055,9.084,5.596,0.034,
+B,B-lat4p0,lateral_acceleration_mps2=4,5.925,PASS,3,0,0,2.927,3.238,8.611,5.732,0.053,
+B,B-lat4p5,lateral_acceleration_mps2=4.5,6.009,PASS,3,0,0,3.004,3.324,8.376,5.811,0.067,
+B,B-lat5p0,lateral_acceleration_mps2=5,6.076,PASS,3,0,0,3.126,3.45,8.033,5.908,0.056,
+C,C-brk3p5,braking_deceleration_mps2=3.5 c32_ego_min_acceleration=-3.5,6.198,PASS,3,0,0,3.121,3.458,8.015,6.002,0.064,
+D,D-acc2p5,acceleration_mps2=2.5 c32_ego_max_acceleration=2.5,6.551,PASS,3,0,0,3.209,3.501,7.936,6.29,0.06,
+D,D-acc3p0,acceleration_mps2=3 c32_ego_max_acceleration=3,6.853,PASS,3,0,0,3.261,3.58,7.795,6.605,0.065,
