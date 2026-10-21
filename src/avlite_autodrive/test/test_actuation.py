@@ -51,6 +51,17 @@ def test_large_acceleration_commands_still_use_existing_limits():
     assert c.target_speed == pytest.approx(2.85)  # -3 m/sÂ² limit.
 
 
+def test_acceleration_limits_follow_configuration():
+    c = Actuation(Limits(max_speed=5.0, max_throttle=0.2, max_acceleration=3.0,
+                         max_deceleration=3.5))
+    ready(c, acceleration=100)
+    c.tick(10, 0.05)
+    assert c.target_speed == pytest.approx(0.15)  # +3 m/s² limit.
+    ready(c, speed=3.0, acceleration=-100)
+    assert c.tick(10, 0.05)[0] == 0
+    assert c.target_speed == pytest.approx(2.825)  # -3.5 m/s² limit.
+
+
 def test_above_ten_speed_demand_preserves_braking_and_watchdog():
     c = Actuation(Limits(max_speed=12.0, max_throttle=0.6))
     for i in range(170):
@@ -190,6 +201,8 @@ def test_reset_and_delayed_tick_discard_integrators():
         {"braking_acceleration_threshold": 0}, {"braking_acceleration_threshold": -0.1},
         {"braking_acceleration_threshold": float("nan")},
         {"braking_acceleration_threshold": float("inf")},
+        {"max_acceleration": 0}, {"max_deceleration": -3.0},
+        {"max_acceleration": float("inf")},
     ]
 )
 def test_configuration_rejects_invalid_limits(kwargs):

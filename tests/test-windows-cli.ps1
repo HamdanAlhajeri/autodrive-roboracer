@@ -70,7 +70,7 @@ try {
         # Help must not run a command or prompt for mandatory map parameters.
         & $cli help | Out-Null
         foreach ($command in @('start', 'stop', 'restart', 'status', 'logs', 'laps', 'record',
-                'response', 'speed', 'map', 'sketch-map', 'sketch-build', 'sketch-test', 'test',
+                'response', 'speed', 'sweep', 'map', 'sketch-map', 'sketch-build', 'sketch-test', 'test',
                 'car')) {
             & $cli $command -Help | Out-Null
         }

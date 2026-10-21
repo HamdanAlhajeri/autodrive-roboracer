@@ -14,6 +14,7 @@ CONTROLLER_FIELDS = frozenset({
     "target_bearing_raw_rad", "target_bearing_rad",
     "planned_mode", "plan_valid", "planned_speed_mps", "path_progress_m",
     "path_deviation_m", "obstacle_speed_limit_mps", "speed_limit_reason",
+    "planned_acceleration_mps2",
     "response_phase", "response_trial_id", "response_trials_requested", "response_aborted",
     "response_trial", "response_target_speed_mps", "response_elapsed_s",
 })

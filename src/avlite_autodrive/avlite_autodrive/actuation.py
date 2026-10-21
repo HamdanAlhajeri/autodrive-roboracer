@@ -19,12 +19,15 @@ class Limits:
     speed_ki: float = 0.002
     feedforward: float = 0.04
     braking_acceleration_threshold: float = 0.1
+    max_acceleration: float = 2.0
+    max_deceleration: float = 3.0
 
     def __post_init__(self):
         """Reject unusable actuator settings as soon as the dataclass is created.
 
         All gains and limits must be positive finite numbers. Throttle is normalized to 0-1,
-        while the steering limit is an angle in radians.
+        while the steering limit is an angle in radians. Acceleration limits are m/s^2
+        magnitudes; max_deceleration bounds negative requests.
         """
         if not all(math.isfinite(v) and v > 0 for v in vars(self).values()):
             raise ValueError("Actuator limits/gains must be finite and positive")
@@ -69,13 +72,14 @@ class Actuation:
         """Store steering in radians and acceleration in m/s^2 with their receive time.
 
         Invalid numbers clear the controller state. Valid acceleration is clipped to the
-        adapter's supported range before the next control tick.
+        configured acceleration and deceleration limits before the next control tick.
         """
         if not all(math.isfinite(v) for v in (steering, acceleration, now)):
             self.reset()
             self.reason = "invalid command"
             return
-        self.command = (steering, clamp(acceleration, -3.0, 2.0))
+        self.command = (steering, clamp(acceleration, -self.limits.max_deceleration,
+                                        self.limits.max_acceleration))
         self.command_time = now
 
     def receive_speed(self, speed, now):

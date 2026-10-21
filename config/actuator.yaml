@@ -12,3 +12,7 @@ avlite_actuator_adapter:
     # A deceleration request at or beyond this magnitude cuts forward throttle.
     # Actual zero-throttle deceleration must be measured in the simulator.
     braking_acceleration_threshold: 0.1
+    # Outer bounds on AVLite acceleration requests, in m/s^2. The planner and controller
+    # limits in avlite.yaml must stay within these; .\avlite.ps1 speed checks that.
+    max_acceleration: 3.0
+    max_deceleration: 3.5
