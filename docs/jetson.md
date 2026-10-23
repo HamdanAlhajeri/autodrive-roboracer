@@ -15,7 +15,7 @@ Work through these in order. Nothing autonomous moves until step 3 is done.
 - [ ] **2. Record and verify sensors** — drive a slow manual teleop lap, `recorder record`, `recorder export`, then `report`. Resolve every `fail` before continuing.
 - [ ] **3. Commission the hardware** — record stop tests, run `commissioning.py`, and fill the measured values (`localization.*`, `limits.*`, `vehicle.*`, `mounts.laser`) into `hardware.yaml`. This is the gate that unblocks autonomous motion.
 - [ ] **4. Validate mapping + localization offline** — replay two separate manual recordings through SLAM Toolbox (map on one, localize on the other) and run the localization report with `--require-map-frame`. Check that every threshold passes.
-- [ ] **5. Install the Jetson runtime** — install ROS 2, SLAM Toolbox and the pinned AVLite revision for the JetPack version found in step 1. The desktop Docker image is not the deployment image.
+- [ ] **5. Install the Jetson runtime** — `bash tools/jetson-setup.sh` installs SLAM Toolbox, the pinned AVLite venv and this stack's ROS packages (see [F1TENTH car](#f1tenth-car-hokuyo--vesc)). The desktop Docker image is not the deployment image.
 - [ ] **6. Stationary hardware tests** — motors disabled or wheels clear: steering direction, actuator bounds, manual override, process failure, connection loss. None may cause movement.
 - [ ] **7. First autonomous mapping lap** — `ros2 launch avlite_roboracer roboracer.launch.py`, then `.\avlite.ps1 car -Action map-start` from the laptop. Verify the car stops near the start, map is accepted, and state reaches `READY`.
 - [ ] **8. Track acceptance** — `race-start`, several localized laps, verified `stop`. Record scan alignment, localization error and stop response. Raise speed only after thresholds are established.
@@ -25,6 +25,52 @@ Still unverified on real hardware (watch for these in steps 4–7):
 - `ros2 bag record --use-sim-time` support in the installed rosbag2
 - Motor driver response to a speed-0 stop command
 - AVLite Follow the Gap with the real LiDAR mount
+
+## F1TENTH car (Hokuyo + VESC)
+
+The target car is a Jetson Orin (JetPack 6, ROS 2 Humble) running the F1TENTH stack:
+Hokuyo UST LiDAR via `urg_node2`, VESC via `vesc_driver`, `vesc_to_odom` and
+`ackermann_to_vesc`, and `ackermann_mux` with joystick teleop. `hardware.yaml` already
+uses that stack's interface names: `/scan`, `/odom`, `/drive`, joystick `/teleop`, and the
+`odom → base_link → laser` frames. Confirm them in step 1; measurements stay `null`.
+
+One-time install, from the repository on the Jetson:
+
+```bash
+bash tools/jetson-setup.sh            # --skip-apt, --venv DIR, --workspace DIR
+```
+
+It installs `ros-humble-slam-toolbox` and Python packages, creates `/opt/avlite-venv`
+with the same pins as the simulator image, and builds `avlite_autodrive` and
+`avlite_roboracer` into `~/roboracer_ws`. Installed nodes use the venv's python
+directly. Add the four `source` lines it prints to `~/.bashrc`, with the F1TENTH
+workspace sourced before `~/roboracer_ws`.
+
+Every session starts with the F1TENTH drivers, then this stack:
+
+```bash
+ros2 launch f1tenth_stack bringup_launch.py   # terminal 1: LiDAR, VESC, joystick, mux
+bash tools/jetson-run.sh launch               # terminal 2: preflight, then supervisor
+```
+
+`launch` first checks that `/scan` and `/odom` publish, that `/drive` has a subscriber,
+and that `odom → base_link` and `base_link → laser` resolve. If any check fails, it
+names the missing piece and does not start.
+
+Check these F1TENTH behaviours in the stationary tests (step 6):
+
+- **Drive mux.** This stack publishes on `/drive`, which `ackermann_mux` ranks below
+  joystick `/teleop`. Whether `/drive` reaches the VESC without a held button depends
+  on your `joy_teleop.yaml` and mux configuration. Confirm it with the wheels clear.
+- **Manual override.** Any nonzero joystick command on `/teleop` overrides autonomy;
+  the supervisor then stops and needs a new start.
+- **Stop.** Speed 0 makes the VESC speed controller hold zero ERPM. Confirm it brakes
+  rather than coasts, and record it in the stop tests.
+- **Laser mount.** `mounts.laser` must match the bringup static transform; the
+  recording check fails when they disagree.
+- **Steering.** Set `steering.positive_left` and `max_angle_rad` from the wheels-clear
+  test. They work on top of the `ackermann_to_vesc` servo gain and offset, which stay
+  in the F1TENTH configuration.
 
 ## How it fits together
 
@@ -129,9 +175,10 @@ Simulator throttle, braking and controller values must not be copied into the pr
 
 ## 3. Running the car
 
-Install the Jetson runtime (ROS 2, SLAM Toolbox, the pinned AVLite revision and this
-repository) after the inspection identifies JetPack and ROS versions; the desktop
-simulator image is not the deployment image. Then start the stack:
+Install the Jetson runtime with `bash tools/jetson-setup.sh` (see
+[F1TENTH car](#f1tenth-car-hokuyo--vesc)); the desktop simulator image is not the
+deployment image. With F1TENTH bringup running, start the stack with
+`bash tools/jetson-run.sh launch`. It runs the preflight, then:
 
 ```bash
 ros2 launch avlite_roboracer roboracer.launch.py config_dir:=$HOME/autodrive-roboracer/config/roboracer

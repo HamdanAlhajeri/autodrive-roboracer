@@ -35,10 +35,12 @@ Work through these in order. **Nothing autonomous moves until step 3 is complete
   Check that the localization report passes every threshold. Use `--reference poses.csv` if an external reference exists.
 
 - [ ] **Step 5 — Install the Jetson runtime**  
-  Install ROS 2, SLAM Toolbox and the pinned AVLite revision for the JetPack version found in step 1. The desktop Docker image is not the deployment image.
+  `bash tools/jetson-setup.sh`  
+  Installs SLAM Toolbox, the pinned AVLite venv and this stack into `~/roboracer_ws`. Add the `source` lines it prints to `~/.bashrc`. The desktop Docker image is not the deployment image.
 
 - [ ] **Step 6 — Stationary hardware tests (motors disabled)**  
-  `bash tools/jetson-run.sh launch`  
+  `ros2 launch f1tenth_stack bringup_launch.py` in one terminal, then  
+  `bash tools/jetson-run.sh launch` (preflight checks `/scan`, `/odom`, the `/drive` mux and transforms first)  
   Then from the laptop confirm: steering direction, actuator bounds, manual override, process failure, connection loss. None may cause movement.
 
 - [ ] **Step 7 — First autonomous mapping lap**  

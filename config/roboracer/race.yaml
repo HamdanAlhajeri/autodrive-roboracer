@@ -11,6 +11,9 @@ planning:
   braking_deceleration_mps2: 1.0
   braking_calibrated: false
   commissioning_speed_mps: 1.0   # Plan ceiling until braking_calibrated is set true.
+  # Adds the plan's own acceleration to the speed loop. Enable only after track
+  # acceptance; the simulator gain and limits do not transfer to this car.
+  acceleration_feedforward: false
   reaction_time_s: 0.3           # Must be at least measurements.command_latency_s.
   clearance_margin_m: 0.2
   tracking_allowance_m: 0.08
