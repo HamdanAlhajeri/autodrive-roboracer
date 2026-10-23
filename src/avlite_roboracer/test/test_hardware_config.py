@@ -78,6 +78,19 @@ def test_uncommissioned_actuator_never_publishes():
     assert "not commissioned" in logic.status(0.01)["fault"]
 
 
+def test_committed_profile_names_f1tenth_interfaces_but_stays_uncommissioned():
+    profile = HardwareProfile.load(PROFILE_PATH)
+    assert [profile.topic(name) for name in ("scan", "odom", "drive_output", "manual_input")] == [
+        "/scan", "/odom", "/drive", "/teleop"]
+    assert [profile.frame(name) for name in ("odom", "base_link", "laser")] == [
+        "odom", "base_link", "laser"]
+    # Interface defaults are not measurements: autonomy stays refused.
+    assert "vehicle.wheelbase_m" in profile.missing_for_autonomy()
+    with pytest.raises(ValueError, match="not commissioned"):
+        profile.require_commissioned()
+    assert load_config(RACE)["planning"]["acceleration_feedforward"] is False
+
+
 def test_race_config_takes_geometry_from_profile_and_respects_limits(tmp_path):
     profile = commissioned_profile()
     config = hardware_race_config(load_config(RACE), profile, tmp_path / "racemap.json")

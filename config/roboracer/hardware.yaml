@@ -5,7 +5,8 @@
 version: 1
 name: jetson-roboracer
 
-# Replace with the names reported by tools/inspect-jetson.sh.
+# Interface names below are the F1TENTH stack defaults (Hokuyo urg_node2, VESC driver,
+# vesc_to_odom, ackermann_mux). Confirm them with tools/inspect-jetson.sh.
 frames:
   map: map
   odom: odom
@@ -16,17 +17,17 @@ frames:
 topics:
   scan: /scan                    # sensor_msgs/LaserScan
   odom: /odom                    # nav_msgs/Odometry from the installed motor driver
-  imu: null                      # sensor_msgs/Imu, if fitted
+  imu: null                      # sensor_msgs/Imu; a VESC with IMU publishes /sensors/imu/raw
   slam_pose: /pose               # SLAM Toolbox pose (PoseWithCovarianceStamped)
   slam_graph: /slam_toolbox/graph_visualization  # Corrected pose-graph nodes
-  drive_output: /drive           # ackermann_msgs/AckermannDriveStamped to the driver
-  manual_input: null             # Teleop AckermannDriveStamped, if manual takes over here
+  drive_output: /drive           # ackermann_mux autonomous input (lower priority than teleop)
+  manual_input: /teleop          # F1TENTH joystick AckermannDriveStamped; overrides autonomy
 
 # Exactly one publisher per transform. The recording check flags any frame that is
 # published by more than one parent or by both /tf and /tf_static.
 transform_owners:
-  odom->base_link: motor driver odometry
-  base_link->laser: static_transform_publisher
+  odom->base_link: vesc_to_odom (publish_tf true)
+  base_link->laser: f1tenth_stack bringup static_transform_publisher
   map->odom: slam_toolbox
 
 # Static sensor mounts relative to base_link (metres, radians). Measure on the car.

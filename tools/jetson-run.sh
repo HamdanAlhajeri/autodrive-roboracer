@@ -34,7 +34,7 @@ usage() {
     printf '  commission  Analyze stop tests from most-recent recording\n'
     printf '  map         Replay most-recent recording through SLAM to build a map\n'
     printf '  localize    Replay second-most-recent recording and localize against the map\n'
-    printf '  launch      Start the ROS stack (does not send drive commands)\n'
+    printf '  launch      Check F1TENTH bringup, then start the ROS stack (no drive commands)\n'
     exit 1
 }
 
@@ -66,6 +66,45 @@ second_latest_recording() {
         exit 1
     fi
     printf '%s\n' "$match"
+}
+
+preflight() {
+    # Read-only: confirm the F1TENTH drivers feed this stack before it starts.
+    local names scan odom drive odom_frame base_frame laser_frame failed=0
+    names="$(python3 -c "from avlite_roboracer.profile import HardwareProfile as H
+p = H.load('$PROFILE')
+print(p.topic('scan'), p.topic('odom'), p.topic('drive_output'),
+      p.frame('odom'), p.frame('base_link'), p.frame('laser'))")"
+    read -r scan odom drive odom_frame base_frame laser_frame <<< "$names"
+    for topic in "$scan" "$odom"; do
+        if timeout 5 ros2 topic echo --once "$topic" >/dev/null 2>&1; then
+            log "ok: $topic is publishing"
+        else
+            log "FAIL: no message on $topic. Is f1tenth_stack bringup running?"; failed=1
+        fi
+    done
+    # Capture output before matching: with pipefail, a timed-out producer piped into
+    # grep would fail the test even when the text was found.
+    local out
+    out="$(ros2 topic info "$drive" 2>/dev/null || true)"
+    if grep -Eq 'Subscription count: [1-9]' <<< "$out"; then
+        log "ok: $drive has a subscriber"
+    else
+        log "FAIL: nothing subscribes to $drive. Start ackermann_mux (f1tenth_stack bringup)."; failed=1
+    fi
+    for pair in "$odom_frame $base_frame" "$base_frame $laser_frame"; do
+        # shellcheck disable=SC2086
+        out="$(timeout 4 ros2 run tf2_ros tf2_echo $pair 2>/dev/null || true)"
+        if grep -q 'Translation' <<< "$out"; then
+            log "ok: transform ${pair/ /->} resolves"
+        else
+            log "FAIL: transform ${pair/ /->} is missing. Check vesc_to_odom and the static laser TF."; failed=1
+        fi
+    done
+    if (( failed )); then
+        log "Preflight failed; the car stack was not started."
+        exit 1
+    fi
 }
 
 latest_map() {
@@ -186,6 +225,8 @@ localize)
     ;;
 
 launch)
+    log "--- Preflight: F1TENTH sensors, drive mux and transforms ---"
+    preflight
     log "--- Starting ROS stack (no drive commands will be sent) ---"
     log "Stop with Ctrl+C. Operator commands come from the laptop via avlite.ps1."
     run ros2 launch avlite_roboracer roboracer.launch.py \
