@@ -6,7 +6,7 @@ import time
 import pytest
 
 pytestmark = pytest.mark.skipif(os.environ.get("RUN_ROS_TESTS") != "1",
-                                reason="requires ROS Humble runtime")
+                                reason="requires ROS 2 runtime (Humble or Jazzy)")
 
 
 def test_uncommissioned_runtime_starts_idle_and_only_publishes_stop(tmp_path):
