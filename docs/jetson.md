@@ -28,7 +28,9 @@ Still unverified on real hardware (watch for these in steps 4–7):
 
 ## F1TENTH car (Hokuyo + VESC)
 
-The target car is a Jetson Orin (JetPack 6, ROS 2 Humble) running the F1TENTH stack:
+The target car is a Jetson Orin running the F1TENTH stack. The car inspected on
+3 November 2026 is an Orin NX on Ubuntu 24.04 (L4T R39) with ROS 2 Jazzy and Python
+3.12; `jetson-setup.sh` also supports Humble on JetPack 6. The expected stack is:
 Hokuyo UST LiDAR via `urg_node2`, VESC via `vesc_driver`, `vesc_to_odom` and
 `ackermann_to_vesc`, and `ackermann_mux` with joystick teleop. `hardware.yaml` already
 uses that stack's interface names: `/scan`, `/odom`, `/drive`, joystick `/teleop`, and the
@@ -40,7 +42,8 @@ One-time install, from the repository on the Jetson:
 bash tools/jetson-setup.sh            # --skip-apt, --venv DIR, --workspace DIR
 ```
 
-It installs `ros-humble-slam-toolbox` and Python packages, creates `/opt/avlite-venv`
+It installs SLAM Toolbox for the detected ROS distro (`ros-humble-slam-toolbox` or
+`ros-jazzy-slam-toolbox`) and Python packages, creates `/opt/avlite-venv`
 with the same pins as the simulator image, and builds `avlite_autodrive` and
 `avlite_roboracer` into `~/roboracer_ws`. Installed nodes use the venv's python
 directly. Add the four `source` lines it prints to `~/.bashrc`, with the F1TENTH
