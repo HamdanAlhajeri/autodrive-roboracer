@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# One-time runtime install for the Jetson car (Orin, JetPack 6, ROS 2 Humble).
+# One-time runtime install for the Jetson car (Orin; ROS 2 Humble on JetPack 6 /
+# Ubuntu 22.04, or ROS 2 Jazzy on JetPack 7 / Ubuntu 24.04).
 # Usage: bash tools/jetson-setup.sh [--workspace DIR] [--venv DIR] [--skip-apt]
 #
 # Installs SLAM Toolbox and Python dependencies, creates the AVLite venv with the same
@@ -15,8 +16,10 @@ SKIP_APT=0
 # Keep these in step with docker/Dockerfile.avlite.
 AVLITE_REVISION="1653f592b2eb5289a14c0d1041e50fdea855322a"
 PIP_PINS=(pip==25.3 setuptools==79.0.1 wheel==0.45.1 packaging==25.0)
-APT_PACKAGES=(ros-humble-slam-toolbox ros-humble-ackermann-msgs python3-venv python3-scipy
-              python3-shapely python3-yaml python3-colcon-common-extensions)
+# ROS packages are added per distro below. python3-dev and build-essential let pip
+# build evdev, an AVLite dependency without prebuilt aarch64 wheels.
+APT_PACKAGES=(python3-venv python3-dev build-essential python3-scipy python3-shapely
+              python3-yaml python3-colcon-common-extensions)
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -34,10 +37,28 @@ source_relaxed() { set +u; source "$1"; set -u; }
 
 step 'Checking the platform'
 [[ "$(uname -m)" == "aarch64" ]] || printf 'WARNING: %s is not aarch64; this targets the Jetson.\n' "$(uname -m)"
-[[ -f /opt/ros/humble/setup.bash ]] || fail '/opt/ros/humble not found. Install ROS 2 Humble (JetPack 6 / Ubuntu 22.04) first.'
-python3 -c 'import sys; sys.exit(sys.version_info[:2] != (3, 10))' \
-    || fail "ROS 2 Humble expects Python 3.10; found $(python3 --version)."
-source_relaxed /opt/ros/humble/setup.bash
+# Use the sourced distro if there is one, otherwise the single supported install.
+DISTRO="${ROS_DISTRO:-}"
+if [[ -z "$DISTRO" ]]; then
+    for candidate in humble jazzy; do
+        if [[ -f "/opt/ros/$candidate/setup.bash" ]]; then
+            [[ -z "$DISTRO" ]] || fail 'Both Humble and Jazzy are installed; source one first.'
+            DISTRO="$candidate"
+        fi
+    done
+fi
+case "$DISTRO" in
+    humble) PYTHON_VERSION=3.10 ;;
+    jazzy) PYTHON_VERSION=3.12 ;;
+    '') fail 'No ROS 2 Humble or Jazzy install found under /opt/ros.' ;;
+    *) fail "ROS 2 $DISTRO is not supported; use Humble or Jazzy." ;;
+esac
+[[ -f "/opt/ros/$DISTRO/setup.bash" ]] || fail "/opt/ros/$DISTRO/setup.bash not found."
+[[ "$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')" == "$PYTHON_VERSION" ]] \
+    || fail "ROS 2 $DISTRO expects Python $PYTHON_VERSION; found $(python3 --version)."
+printf 'ROS 2 %s with Python %s\n' "$DISTRO" "$PYTHON_VERSION"
+APT_PACKAGES+=("ros-$DISTRO-slam-toolbox" "ros-$DISTRO-ackermann-msgs")
+source_relaxed "/opt/ros/$DISTRO/setup.bash"
 missing=()
 for pkg in urg_node2 vesc_driver ackermann_mux; do
     ros2 pkg prefix "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
@@ -83,7 +104,7 @@ python -c 'import avlite, rclpy, tf2_ros, ackermann_msgs.msg, avlite_roboracer, 
 ros2 pkg executables avlite_roboracer
 
 step 'Done. Add these lines to ~/.bashrc (F1TENTH workspace before this one):'
-printf 'source /opt/ros/humble/setup.bash\n'
+printf 'source /opt/ros/%s/setup.bash\n' "$DISTRO"
 printf 'source <your F1TENTH workspace>/install/setup.bash\n'
 printf 'source %s/bin/activate\n' "$VENV"
 printf 'source %s/install/setup.bash\n' "$WORKSPACE"
