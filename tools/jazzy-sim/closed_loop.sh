@@ -20,7 +20,7 @@ open(sys.argv[1], "w").write(yaml.safe_dump(commissioned_data(), sort_keys=False
 EOF
 CLI="python -m avlite_roboracer.cli"
 
-python /work/fake_car.py --mode drive --truth "$OUT/truth.csv" > "$OUT/car.log" 2>&1 &
+python /work/fake_car.py --mode drive --joy-button 5 --truth "$OUT/truth.csv" > "$OUT/car.log" 2>&1 &
 CAR=$!
 ros2 launch avlite_roboracer roboracer.launch.py "config_dir:=$OUT/cfg" > "$OUT/stack.log" 2>&1 &
 STACK=$!

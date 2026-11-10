@@ -61,6 +61,15 @@ limits:
   mapping_speed_mps: null     # Slow autonomous mapping lap.
   racing_speed_mps: null      # Ceiling for the racing profile; <= stop_test_speed_mps.
 
+# Operator dead-man. Autonomous commands reach the driver only while a fresh joystick
+# message shows this button held; releasing it, or the joystick going silent (out of
+# range, flat battery, joy_node exit), stops the car. Find the index with
+# `ros2 topic echo /joy` while pressing the button. Autonomy is refused until set.
+deadman:
+  topic: /joy                 # sensor_msgs/Joy from joy_node
+  button: null                # buttons[] index the operator holds during autonomy
+  timeout_s: 0.25             # joy_node must publish at least this often (autorepeat)
+
 timing:
   command_timeout_s: 0.25     # Actuator stops if no fresh supervisor command arrives.
   authorization_timeout_s: 1.0 # Supervisor stops if laptop heartbeats stop.

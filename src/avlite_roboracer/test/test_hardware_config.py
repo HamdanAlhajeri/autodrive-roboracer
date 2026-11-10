@@ -9,6 +9,7 @@ from avlite_roboracer.actuator_node import ActuatorLogic
 from avlite_roboracer.command import CommandSource, DriveCommand, STOP
 from avlite_roboracer.commissioning import analyze
 from avlite_roboracer.profile import HardwareProfile
+from avlite_roboracer.readiness import actuator_failures
 from avlite_roboracer.racing import (
     hardware_race_config, mapping_control_config, mapping_racing_config,
 )
@@ -18,6 +19,8 @@ from roboracer_fixtures import PROFILE_PATH, ROOT, commissioned_profile
 RACE = ROOT / "config" / "roboracer" / "race.yaml"
 SLAM = ROOT / "config" / "roboracer" / "slam_toolbox.yaml"
 MOVE = DriveCommand(0.1, 1.0, CommandSource.RACING)
+HELD = [0, 0, 0, 0, 0, 1, 0, 0]      # fixture dead-man button 5 pressed
+RELEASED = [0] * 8
 
 
 def test_actuator_is_silent_until_commanded_and_holds_stop_after_expiry():
@@ -26,6 +29,7 @@ def test_actuator_is_silent_until_commanded_and_holds_stop_after_expiry():
     logic.receive_command(STOP, 0.01, 0.0)
     assert logic.tick(0.01) is None
     logic.receive_command(MOVE, 0.01, 1.0)
+    logic.receive_joystick(HELD, 1.0)
     assert logic.tick(1.05) == pytest.approx((0.1, 1.0))
     logic.speed = 1.0
     assert logic.tick(1.30) == (0.0, 0.0)  # expired after 0.25 s: actively stop
@@ -68,6 +72,53 @@ def test_competing_publisher_latches_a_fault():
     assert "another node" in logic.fault
     logic.receive_command(MOVE, 0.0, 0.02)
     assert logic.tick(0.03) == (0.0, 0.0)
+
+
+def test_releasing_the_deadman_stops_and_blocks_restart():
+    logic = ActuatorLogic(commissioned_profile())
+    logic.receive_joystick(HELD, 0.0)
+    logic.receive_command(MOVE, 0.0, 0.0)
+    assert logic.tick(0.01) == pytest.approx((0.1, 1.0))
+    logic.receive_joystick(RELEASED, 0.02)
+    logic.receive_command(MOVE, 0.0, 0.02)
+    assert logic.tick(0.03) == (0.0, 0.0) and logic.state == "stopping"
+    logic.receive_command(MOVE, 0.0, 0.04)  # fresh commands alone cannot resume
+    assert logic.tick(0.05) == (0.0, 0.0)
+    assert not logic.status(0.05)["deadman_held"]
+
+
+def test_silent_joystick_stops_even_with_fresh_commands():
+    logic = ActuatorLogic(commissioned_profile())
+    logic.receive_joystick(HELD, 0.0)  # e.g. last message before the pad lost its link
+    for step in range(1, 30):
+        now = step * 0.01
+        logic.receive_command(MOVE, 0.0, now)
+        expected = (0.0, 0.0) if now > 0.25 else pytest.approx((0.1, 1.0))
+        assert logic.tick(now) == expected
+
+
+def test_deadman_button_out_of_range_counts_as_released():
+    logic = ActuatorLogic(commissioned_profile())
+    logic.receive_joystick([1, 1], 0.0)  # pad reports fewer buttons than the index
+    logic.receive_command(MOVE, 0.0, 0.0)
+    logic.state = "active"
+    assert logic.tick(0.01) == (0.0, 0.0)
+
+
+def test_autonomy_requires_a_deadman_button():
+    assert "deadman.button" in commissioned_profile(**{"deadman.button": None}).missing_for_autonomy()
+    for bad in (-1, True, 1.5, "5"):
+        with pytest.raises(ValueError, match="deadman.button"):
+            commissioned_profile(**{"deadman.button": bad})
+
+
+def test_moving_session_requires_the_deadman_but_ready_does_not():
+    status = (0.0, {"fault": None, "manual_override": False, "deadman_held": False})
+    assert actuator_failures(status, 0.1, 0.5) == []
+    assert actuator_failures(status, 0.1, 0.5, require_deadman=True) == [
+        "dead-man button released or joystick silent"]
+    held = (0.0, {**status[1], "deadman_held": True})
+    assert actuator_failures(held, 0.1, 0.5, require_deadman=True) == []
 
 
 def test_uncommissioned_actuator_never_publishes():

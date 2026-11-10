@@ -5,11 +5,12 @@ def _fresh(age, timeout):
     return age is not None and 0 <= age <= timeout
 
 
-def actuator_failures(actuator, now, timeout_s):
+def actuator_failures(actuator, now, timeout_s, require_deadman=False):
     """Check the actuator process's latest status snapshot.
 
     actuator is (receive_time, status_dict) or None. The actuator must be alive, report no
-    fault and have no manual override engaged.
+    fault and have no manual override engaged. While the car is meant to move
+    (require_deadman), the operator must also be holding the dead-man button.
     """
     if actuator is None or not _fresh(now - actuator[0], timeout_s):
         return ["actuator process unavailable"]
@@ -19,6 +20,8 @@ def actuator_failures(actuator, now, timeout_s):
         failures.append(f"actuator fault: {status['fault']}")
     if status.get("manual_override"):
         failures.append("manual override engaged")
+    if require_deadman and not status.get("deadman_held"):
+        failures.append("dead-man button released or joystick silent")
     return failures
 
 

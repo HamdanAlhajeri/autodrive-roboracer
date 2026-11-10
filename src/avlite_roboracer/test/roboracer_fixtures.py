@@ -28,6 +28,7 @@ MEASURED = {
                      "min_scan_alignment": 0.7, "scan_alignment_tolerance_m": 0.10,
                      "max_motion_mismatch_m": 0.10, "max_motion_mismatch_rad": 0.08,
                      "stable_duration_s": 2.0},
+    "deadman": {"topic": "/joy", "button": 5, "timeout_s": 0.25},
 }
 
 
