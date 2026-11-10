@@ -20,6 +20,15 @@ def test_replay_refuses_live_domain(monkeypatch):
     assert recorder.replay_environment(74)["ROS_LOCALHOST_ONLY"] == "1"
 
 
+def test_bag_record_command_matches_the_ros_distro(monkeypatch):
+    monkeypatch.setenv("ROS_DISTRO", "humble")
+    assert recorder.bag_record_command("out", ["/scan", "/odom"], use_sim_time=True) == [
+        "ros2", "bag", "record", "--use-sim-time", "-o", "out", "/scan", "/odom"]
+    monkeypatch.setenv("ROS_DISTRO", "jazzy")
+    assert recorder.bag_record_command("out", ["/scan", "/odom"]) == [
+        "ros2", "bag", "record", "-o", "out", "--topics", "/scan", "/odom"]
+
+
 def test_failed_slam_save_cannot_be_treated_as_success():
     for code in (1, 255):
         with pytest.raises(RuntimeError, match="failed with result"):
