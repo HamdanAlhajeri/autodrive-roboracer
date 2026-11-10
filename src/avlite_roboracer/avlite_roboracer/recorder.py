@@ -89,7 +89,11 @@ def git_revision():
 
 
 def write_session(directory, profile, topics, purpose):
-    directory.mkdir(parents=True, exist_ok=False)
+    # jetson-run.sh creates the directory for its own run.log first; refuse only a
+    # directory that already holds a recording.
+    directory.mkdir(parents=True, exist_ok=True)
+    if (directory / "session.json").exists() or (directory / "bag").exists():
+        raise FileExistsError(f"{directory} already holds a recording")
     session = {
         "version": 1, "purpose": purpose,
         "started_utc": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),

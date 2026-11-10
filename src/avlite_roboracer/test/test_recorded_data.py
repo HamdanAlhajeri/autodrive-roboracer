@@ -228,3 +228,29 @@ def test_invalid_localization_never_becomes_ready(pose, cov, alignment):
     for i in range(30):
         monitor.update(i * 0.1, pose, (0, 0, 0), cov, alignment)
     assert monitor.failures(29 * 0.1)
+
+
+def test_recorder_startup_lag_is_trimmed_before_checks(recording):
+    """ros2 bag can subscribe to /scan almost a second before /odom and /tf."""
+    records, *_ = recording
+    start = min(r["rx_ns"] for r in records if r["kind"] in ("odom", "tf"))
+    early = []
+    for record in records:
+        if record["kind"] == "scan" and record["rx_ns"] >= start:
+            for k in range(1, 40):  # 0.9 s of scans before odometry and TF begin
+                extra = copy.deepcopy(record)
+                extra["rx_ns"] = start - k * 25_000_000
+                extra["stamp_ns"] = extra["rx_ns"]
+                early.append(extra)
+            break
+    report = check_recording(early[::-1] + records, commissioned_profile(), require_map=True)
+    assert report["status"] == "pass"
+    assert report["startup_trimmed_s"] == pytest.approx(0.975, abs=0.03)
+
+
+def test_recording_may_reuse_an_empty_run_directory(tmp_path):
+    from avlite_roboracer import recorder
+    profile = commissioned_profile()
+    recorder.write_session(tmp_path, profile, ["/scan"], "test")  # created by jetson-run.sh
+    with pytest.raises(FileExistsError):
+        recorder.write_session(tmp_path, profile, ["/scan"], "test")

@@ -244,8 +244,30 @@ def group_by_kind(records):
     return by_kind
 
 
+STREAM_KINDS = ("scan", "odom", "imu", "tf")
+
+
+def trim_startup(records):
+    """Drop stream records received before every recorded stream had started.
+
+    ros2 bag subscribes to topics one by one, so the first scans can precede the first
+    odometry and TF by most of a second. Those records say nothing about the car.
+    Latched and status records (tf_static, drive, status) are always kept.
+    """
+    first = {}
+    for record in records:
+        if record["kind"] in STREAM_KINDS:
+            first.setdefault(record["kind"], record["rx_ns"])
+    if len(first) < 2:
+        return list(records), 0.0
+    start = max(first.values())
+    kept = [r for r in records if r["kind"] not in STREAM_KINDS or r["rx_ns"] >= start]
+    return kept, (start - min(first.values())) * 1e-9
+
+
 def check_recording(records, profile, require_map=False):
     """Run every recorded-data check and return a report with an overall status."""
+    records, trimmed_s = trim_startup(records)
     by_kind = group_by_kind(records)
     checks = check_timestamps(by_kind, profile)
     transform_checks, _ = check_transforms(records, by_kind, profile, require_map)
@@ -254,5 +276,5 @@ def check_recording(records, profile, require_map=False):
     checks += check_scan_sync(by_kind)
     status = ("fail" if any(c["status"] == "fail" for c in checks)
               else "warn" if any(c["status"] == "warn" for c in checks) else "pass")
-    return {"status": status, "checks": checks,
+    return {"status": status, "checks": checks, "startup_trimmed_s": round(trimmed_s, 3),
             "message_counts": {kind: len(items) for kind, items in sorted(by_kind.items())}}
