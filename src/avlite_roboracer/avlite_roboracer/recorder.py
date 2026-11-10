@@ -71,6 +71,15 @@ def record_topics(profile, include_map=False):
     return topics + (["/map"] if include_map else [])
 
 
+def bag_record_command(output, topics, use_sim_time=False):
+    """Humble takes topics positionally; Jazzy deprecates that in favour of --topics."""
+    command = ["ros2", "bag", "record", *(["--use-sim-time"] if use_sim_time else []),
+               "-o", str(output)]
+    if os.environ.get("ROS_DISTRO", "humble") == "humble":
+        return command + list(topics)
+    return command + ["--topics", *topics]
+
+
 def git_revision():
     try:
         return subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,
@@ -112,7 +121,7 @@ def record(args, profile):
     topics = record_topics(profile, args.include_map)
     write_session(directory, profile, topics, args.purpose)
     print(f"Recording {len(topics)} topics to {directory}/bag. Ctrl+C to finish.", flush=True)
-    process = subprocess.Popen(["ros2", "bag", "record", "-o", str(directory / "bag"), *topics],
+    process = subprocess.Popen(bag_record_command(directory / "bag", topics),
                                start_new_session=True)
     try:
         return process.wait()
@@ -213,9 +222,8 @@ def replay(args, profile):
     playback = None
     try:
         slam.start(args.mode, params, use_sim_time=True, env=env)
-        recorder = subprocess.Popen(["ros2", "bag", "record", "--use-sim-time", "-o",
-                                     str(output / "bag"), *topics], start_new_session=True,
-                                    env=env)
+        recorder = subprocess.Popen(bag_record_command(output / "bag", topics, use_sim_time=True),
+                                    start_new_session=True, env=env)
         time.sleep(3.0)  # let SLAM and the recorder discover topics before playback
         playback = subprocess.Popen(
             ["ros2", "bag", "play", str(session / "bag"), "--clock",
