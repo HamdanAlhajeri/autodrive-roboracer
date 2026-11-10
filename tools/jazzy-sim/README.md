@@ -20,8 +20,8 @@ git -c core.autocrlf=false archive --format=tar --prefix=autodrive-roboracer/ HE
   | docker run -i --name rr-jazzy roboracer-jazzy-test bash -c \
     'mkdir -p ~/Desktop && tar -x -C ~/Desktop && cd ~/Desktop/autodrive-roboracer && bash tools/jetson-setup.sh'
 docker commit rr-jazzy roboracer-jazzy-installed && docker rm rr-jazzy
-MSYS_NO_PATHCONV=1 docker run --rm -v "$(cygpath -w tools/jazzy-sim):/work" \
-  -v "$(cygpath -w src):/repo-src:ro" roboracer-jazzy-installed bash /work/pipeline.sh
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(cygpath -wa tools/jazzy-sim):/work" \
+  -v "$(cygpath -wa src):/repo-src:ro" roboracer-jazzy-installed bash /work/pipeline.sh
 ```
 
 Use `closed_loop.sh` in place of `pipeline.sh` for the autonomous flow. Results land in

@@ -35,6 +35,7 @@ AUTONOMY_REQUIRED = (
     "localization.max_position_stddev_m", "localization.max_yaw_stddev_rad",
     "localization.min_scan_alignment", "localization.max_motion_mismatch_m",
     "localization.max_motion_mismatch_rad",
+    "deadman.button",
 )
 
 POSITIVE = {
@@ -49,6 +50,7 @@ POSITIVE = {
     "localization.max_position_stddev_m", "localization.max_yaw_stddev_rad",
     "localization.scan_alignment_tolerance_m", "localization.max_motion_mismatch_m",
     "localization.max_motion_mismatch_rad", "localization.stable_duration_s",
+    "deadman.timeout_s",
 }
 
 
@@ -97,6 +99,10 @@ class HardwareProfile:
             raise ValueError("steering.positive_left must be true, false or null")
         if _get(self.data, "motor.stop_command_speed_mps") not in (None, 0, 0.0):
             raise ValueError("motor.stop_command_speed_mps must be 0 for the Ackermann output")
+        button = _get(self.data, "deadman.button")
+        if button is not None and (isinstance(button, bool) or not isinstance(button, int)
+                                   or button < 0):
+            raise ValueError("deadman.button must be a non-negative buttons[] index or null")
         alignment = _get(self.data, "localization.min_scan_alignment")
         if alignment is not None and not 0 < alignment <= 1:
             raise ValueError("localization.min_scan_alignment must be in (0, 1]")

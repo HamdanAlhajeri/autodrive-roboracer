@@ -355,8 +355,10 @@ class Runtime:
             return
         scan_age, odom_age = self.ages(now)
         timeout = self.profile.get("timing.sensor_timeout_s")
+        # Releasing the dead-man ends a moving session; a new start is then required.
         actuator = actuator_failures(self.actuator, now,
-                                     2 * self.profile.get("timing.command_timeout_s"))
+                                     2 * self.profile.get("timing.command_timeout_s"),
+                                     require_deadman=state in (State.MAPPING, State.RACING))
         if self.slam.died:
             self.supervisor.fault("SLAM Toolbox process exited", now)
         elif state in (State.MAPPING, State.RACING, State.READY, State.FINALIZING):

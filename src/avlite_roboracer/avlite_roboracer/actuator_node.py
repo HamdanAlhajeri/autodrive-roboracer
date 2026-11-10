@@ -6,6 +6,10 @@ AckermannDriveStamped to the installed driver. It stays silent until the supervi
 commands motion, so the driver's own teleop can use the topic during commissioning. After
 an expiry or stop it publishes stop until the car is stationary and the hold time passes.
 
+Autonomous commands pass only while the operator holds the dead-man button on a joystick
+that keeps publishing (deadman.* in the profile); a release or a silent joystick stops
+the car exactly like an expired command.
+
 A fresh nonzero manual command on topics.manual_input overrides autonomy: it is forwarded
 and reported, and the supervisor stops its session. SSH or process loss is not a physical
 stop; the car's independent emergency stop/manual override must remain available.
@@ -37,6 +41,8 @@ class ActuatorLogic:
         self.manual_time = -math.inf
         self.speed = 0.0
         self.fault = None
+        self.deadman_timeout_s = profile.get("deadman.timeout_s", 0.25)
+        self.deadman_time = -math.inf
         self.commissioned = not profile.missing_for_autonomy()
         if not self.commissioned:
             self.fault = "hardware profile not commissioned; actuator stays silent"
@@ -60,6 +66,18 @@ class ActuatorLogic:
     def manual_override(self):
         return self.manual is not None and not self.manual.is_stop
 
+    def receive_joystick(self, buttons, now):
+        """Record a joystick message; only a held dead-man button refreshes the timer."""
+        button = self.profile.get("deadman.button")
+        if button is not None and button < len(buttons) and buttons[button]:
+            self.deadman_time = now
+        else:
+            self.deadman_time = -math.inf
+
+    def deadman_held(self, now):
+        """True while the last joystick message, no older than the timeout, held the button."""
+        return 0 <= now - self.deadman_time <= self.deadman_timeout_s
+
     def tick(self, now, competing_publishers=0):
         """Return the Ackermann (steering, speed) to publish, or None to stay silent."""
         if not self.commissioned:
@@ -72,14 +90,15 @@ class ActuatorLogic:
             self.fault = "another node publishes the driver command topic"
         command = self.watchdog.output(now)
         if self.state == "active" and (self.watchdog.expired or command.is_stop
-                                       or self.fault):
+                                       or self.fault or not self.deadman_held(now)):
             self.state = "stopping"
             self.stop_until = now + self.stop_hold_s
         if self.state == "stopping":
             if now >= self.stop_until and abs(self.speed) < 0.05:
                 self.state = "idle"
                 self.watchdog.reset()
-            if not self.fault and not self.watchdog.expired and not command.is_stop:
+            if (not self.fault and not self.watchdog.expired and not command.is_stop
+                    and self.deadman_held(now)):
                 self.state = "active"
             else:
                 return (self.profile.get("steering.center_offset_rad", 0.0),
@@ -91,6 +110,7 @@ class ActuatorLogic:
     def status(self, now):
         return {"state": self.state, "fault": self.fault,
                 "manual_override": self.manual_override,
+                "deadman_held": self.deadman_held(now),
                 "command_expired": self.watchdog.expired,
                 "measured_speed_mps": self.speed if math.isfinite(self.speed) else None}
 
@@ -103,6 +123,7 @@ def main(argv=None):
     from rclpy.signals import SignalHandlerOptions
     from ackermann_msgs.msg import AckermannDriveStamped
     from nav_msgs.msg import Odometry
+    from sensor_msgs.msg import Joy
     from std_msgs.msg import String
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -135,6 +156,10 @@ def main(argv=None):
 
     node.create_subscription(AckermannDriveStamped, COMMAND_TOPIC, on_command, 1)
     node.create_subscription(Odometry, profile.topic("odom"), on_odom, qos_profile_sensor_data)
+    if profile.get("deadman.topic"):
+        node.create_subscription(
+            Joy, profile.get("deadman.topic"),
+            lambda m: logic.receive_joystick(list(m.buttons), time.monotonic()), 1)
     if profile.topic("manual_input"):
         node.create_subscription(
             AckermannDriveStamped, profile.topic("manual_input"),

@@ -27,6 +27,11 @@ def test_cloud_axes_and_unknown_returns():
     np.testing.assert_allclose(np.linalg.norm(cloud[:, :2], axis=1), [10, 0.06, 0.06])
 
 
+def test_hokuyo_no_echo_code_is_open_space_not_a_close_obstacle():
+    cloud = scan_cloud(scan([65.533, 0.01, 2]))  # no echo, below range_min, a wall
+    np.testing.assert_allclose(np.linalg.norm(cloud[:, :2], axis=1), [10, 0.06, 2], rtol=1e-6)
+
+
 def test_scan_validity_requires_observations():
     assert valid_scan(scan([2] * 1080, increment=0.00436))
     assert not valid_scan(scan([float("nan")] * 1080))

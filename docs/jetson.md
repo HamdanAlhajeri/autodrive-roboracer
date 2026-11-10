@@ -49,6 +49,22 @@ with the same pins as the simulator image, and builds `avlite_autodrive` and
 directly. Add the four `source` lines it prints to `~/.bashrc`, with the F1TENTH
 workspace sourced before `~/roboracer_ws`.
 
+On Jazzy the F1TENTH drivers are not in apt; build them from source (verified on the car,
+10 November 2026; all 12 packages build without source changes):
+
+```bash
+sudo apt install ros-jazzy-serial-driver ros-jazzy-asio-cmake-module \
+    ros-jazzy-control-msgs ros-jazzy-test-msgs ros-jazzy-urg-node
+mkdir -p ~/f1tenth_ws/src && cd ~/f1tenth_ws/src
+git clone --recursive https://github.com/f1tenth/f1tenth_system.git
+cd ~/f1tenth_ws && colcon build --symlink-install
+```
+
+`asio_cmake_module` is needed by Jazzy's `io_context` (used by `vesc_driver`) but is not
+declared as its dependency. Set `port: /dev/ttyACM0` in
+`f1tenth_stack/config/vesc.yaml` unless a udev rule provides `/dev/sensors/vesc`. The
+Hokuyo needs the Jetson's wired port on `192.168.0.15/24` (sensor at `192.168.0.10`).
+
 Every session starts with the F1TENTH drivers, then this stack:
 
 ```bash

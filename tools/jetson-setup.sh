@@ -57,7 +57,8 @@ esac
 [[ "$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')" == "$PYTHON_VERSION" ]] \
     || fail "ROS 2 $DISTRO expects Python $PYTHON_VERSION; found $(python3 --version)."
 printf 'ROS 2 %s with Python %s\n' "$DISTRO" "$PYTHON_VERSION"
-APT_PACKAGES+=("ros-$DISTRO-slam-toolbox" "ros-$DISTRO-ackermann-msgs")
+# SLAM Toolbox's save_map service runs nav2_map_server's map_saver_cli.
+APT_PACKAGES+=("ros-$DISTRO-slam-toolbox" "ros-$DISTRO-nav2-map-server" "ros-$DISTRO-ackermann-msgs")
 source_relaxed "/opt/ros/$DISTRO/setup.bash"
 missing=()
 for pkg in urg_node2 vesc_driver ackermann_mux; do

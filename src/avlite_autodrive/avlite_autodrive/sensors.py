@@ -22,9 +22,12 @@ def scan_cloud(msg):
     """
     ranges = np.asarray(msg.ranges, dtype=np.float64)
     angles = msg.angle_min + np.arange(len(ranges)) * msg.angle_increment
-    # Positive infinity means no return out to range_max. Unknown/corrupt beams
-    # become close obstacles, never holes through which gap selection can drive.
-    ranges = np.where(np.isposinf(ranges), msg.range_max, ranges)
+    # Positive infinity, or a finite reading beyond range_max (Hokuyo reports 65.533 for
+    # no echo), means no return out to range_max, matching scan_hit_mask(). NaN and
+    # readings below range_min become close obstacles, never holes through which gap
+    # selection can drive.
+    no_return = np.isposinf(ranges) | (np.isfinite(ranges) & (ranges > msg.range_max))
+    ranges = np.where(no_return, msg.range_max, ranges)
     valid = np.isfinite(ranges) & (ranges >= msg.range_min) & (ranges <= msg.range_max)
     ranges = np.where(valid, ranges, max(msg.range_min, 0.01))
     cloud = np.zeros((len(ranges), 4), dtype=np.float32)

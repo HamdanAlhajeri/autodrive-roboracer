@@ -1,6 +1,6 @@
 """Simulated F1TENTH car for testing the Jetson stack without hardware.
 
-Publishes /scan (UST-10LX-like), /odom with drifting wheel odometry, TF odom->base_link
+Publishes /scan (UST-10LX-like), optional /joy with a held dead-man button, /odom with drifting wheel odometry, TF odom->base_link
 and static base_link->laser. Modes:
   scripted  drives the centreline itself (stands in for a manual teleop lap)
   drive     obeys AckermannDriveStamped on /drive (closed loop with the supervisor)
@@ -19,7 +19,7 @@ from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
-from sensor_msgs.msg import LaserScan
+from sensor_msgs.msg import Joy, LaserScan
 from shapely.geometry import LineString, Polygon, box
 from tf2_msgs.msg import TFMessage
 
@@ -88,6 +88,10 @@ class Car(Node):
         self.publish_static()
         if args.mode == "drive":
             self.create_subscription(AckermannDriveStamped, "/drive", self.on_drive, 10)
+        if args.joy_button is not None:
+            # Operator holding the dead-man button, as joy_node publishes at autorepeat.
+            self.joy_pub = self.create_publisher(Joy, "/joy", 10)
+            self.create_timer(1 / 20, self.publish_joy)
         self.truth_file = open(args.truth, "w") if args.truth else None
         if self.truth_file:
             self.truth_file.write("t_s,x,y,yaw\n")
@@ -108,6 +112,13 @@ class Car(Node):
         t.transform.translation.x = LASER_X
         t.transform.rotation.w = 1.0
         self.static_pub.publish(TFMessage(transforms=[t]))
+
+    def publish_joy(self):
+        msg = Joy()
+        msg.header.stamp = self.stamp()
+        msg.axes = [0.0] * 6
+        msg.buttons = [int(i == self.args.joy_button) for i in range(12)]
+        self.joy_pub.publish(msg)
 
     def on_drive(self, msg):
         self.cmd = (float(msg.drive.speed), float(msg.drive.steering_angle))
@@ -218,6 +229,7 @@ def main():
     p.add_argument("--laps", type=float, default=0.0, help="Stop after this many laps")
     p.add_argument("--truth")
     p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--joy-button", type=int, help="Publish /joy holding this button")
     args = p.parse_args()
     rclpy.init()
     car = Car(args)
