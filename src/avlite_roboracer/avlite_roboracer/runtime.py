@@ -301,8 +301,15 @@ class Runtime:
             self.supervisor.tick(now)
             self.check_faults(now)
             self.run_actions(now)
+            actions_done = time.monotonic()
             try:
                 command = self.control(now)
+                elapsed = time.monotonic() - now
+                if elapsed > 0.5 * self.profile.get("timing.sensor_timeout_s"):
+                    # Callbacks wait behind this tick, so a slow step can starve sensors.
+                    self.node.get_logger().warning(
+                        f"Control tick took {elapsed:.3f} s in {self.supervisor.state.value} "
+                        f"(scans and actions {actions_done - now:.3f} s)")
             except Exception as exc:  # any controller failure must stop, not crash
                 self.node.get_logger().error(f"Controller failed: {exc!r}")
                 self.supervisor.fault(f"controller error: {exc}", now)
@@ -363,7 +370,8 @@ class Runtime:
             self.supervisor.fault("SLAM Toolbox process exited", now)
         elif state in (State.MAPPING, State.RACING, State.READY, State.FINALIZING):
             if not (0 <= scan_age <= timeout and 0 <= odom_age <= timeout):
-                self.supervisor.fault("stale LiDAR or odometry", now)
+                self.supervisor.fault(f"stale LiDAR or odometry (scan {scan_age:.3f} s, "
+                                      f"odometry {odom_age:.3f} s, limit {timeout} s)", now)
             elif actuator:
                 self.supervisor.fault("; ".join(actuator), now)
             elif state in (State.RACING, State.READY):
