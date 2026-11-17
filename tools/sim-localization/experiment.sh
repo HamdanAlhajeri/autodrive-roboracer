@@ -166,10 +166,12 @@ start_pose: [0.0, 0.0, 0.0]
 map_origin_world: ${ORIGIN:-null}"
 drive_laps slam slam
 
-# --- Ground-truth baseline -------------------------------------------------------------------
-reset_sim
-write_config baseline ground_truth
-drive_laps baseline baseline
+# --- Ground-truth baseline (skipped with SKIP_BASELINE=1) -------------------------------------
+if [[ -z "${SKIP_BASELINE:-}" ]]; then
+    reset_sim
+    write_config baseline ground_truth
+    drive_laps baseline baseline
+fi
 
 log "Summarizing"
 docker run --rm -v "$W_OUT:/out" -v "$W_REPO\\tools\\sim-localization:/tools:ro" --entrypoint python3 "$IMAGE" /tools/summarize.py /out

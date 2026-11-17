@@ -101,8 +101,16 @@ class AutoDRIVEWorldBridge(WorldBridge):
         if not sensors or self.pose_source is None:
             return sensors
         pose = self.pose_source.pose()
-        return (pose is not None and 0 <= pose[3] <= self.pose_timeout_s
-                and not self.pose_source.failures())
+        if pose is None:
+            reasons = ["no map -> base_link transform"]
+        elif not 0 <= pose[3] <= self.pose_timeout_s:
+            reasons = [f"map pose is {pose[3]:.2f}s old"]
+        else:
+            reasons = self.pose_source.failures()
+        if reasons and time.monotonic() - getattr(self, "_reasons_logged", 0.0) > 2.0:
+            self._reasons_logged = time.monotonic()  # throttled: ready is polled at 20 Hz
+            self.node.get_logger().warning("Withholding commands: " + "; ".join(reasons))
+        return not reasons
 
     def on_scan(self, msg):
         """Convert a valid LaserScan into sensor-frame points and a real-hit mask.

@@ -27,9 +27,17 @@ SOURCES = ("ground_truth", "slam")
 # The car's mapping search (0.5 m window at 1 cm) took ~0.5 s per scan on one core beside
 # the simulator, so poses arrived 2 s late. Localization starts from wheel odometry, so a
 # 0.3 m window at 2.5 cm (~17x fewer candidates) is enough and keeps up in real time.
+# Loop closure ties live scans to the saved graph; from a known start pose a 3 m window
+# (not the mapping run's 8 m) is enough. Matching at 5 Hz is plenty with odometry between.
 DEFAULT_SLAM_OVERRIDES = {"minimum_travel_distance": 0.0, "minimum_travel_heading": 0.0,
                           "correlation_search_space_dimension": 0.3,
-                          "correlation_search_space_resolution": 0.025}
+                          "correlation_search_space_resolution": 0.025,
+                          "loop_search_space_dimension": 3.0,
+                          "minimum_time_interval": 0.2}
+# SLAM reports a scan's pose and covariance after matching it, a few hundred ms later.
+# The driven pose stays current (map -> odom composed with live odometry); the covariance
+# describing it may be this old before the estimate counts as unreported.
+COVARIANCE_MAX_AGE_S = 1.0
 
 
 @dataclass(frozen=True)
@@ -199,7 +207,8 @@ class SlamPoseSource:
         scan_s = stamp.nanoseconds * 1e-9
         with self.lock:
             covariance = (self.covariance[1] if self.covariance
-                          and abs(self.covariance[0] - scan_s) <= 0.2 else None)
+                          and 0 <= scan_s - self.covariance[0] <= COVARIANCE_MAX_AGE_S
+                          else None)
             self.monitor.update(time.monotonic(), map_pose[:3], odom_pose[:3], covariance,
                                 alignment)
 
