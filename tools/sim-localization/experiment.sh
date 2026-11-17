@@ -57,6 +57,8 @@ stop() { for c in "$@"; do docker kill -s INT "$c" >/dev/null 2>&1 || true; done
          for c in "$@"; do timeout 20 docker wait "$c" >/dev/null 2>&1              || docker stop -t 2 "$c" >/dev/null 2>&1 || true; done; }
 cleanup() { stop rr-avlite rr-rec rr-truth rr-diag rr-laps; }
 trap cleanup EXIT
+# Helpers left by an interrupted run would block their names.
+docker rm -f rr-avlite rr-rec rr-truth rr-diag rr-laps >/dev/null 2>&1 || true
 
 topic_value() {  # topic_value TOPIC FIELD -> one number or empty (never a ROS warning)
     ros - "timeout 5 ros2 topic echo --once --field $2 $1 2>/dev/null" | tr -d '\r' \
