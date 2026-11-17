@@ -33,11 +33,12 @@ def lap_times(path):
     if path.exists():
         for line in path.read_text(errors="replace").splitlines():
             try:
-                value = float(line.strip())
+                value = round(float(line.strip()), 3)
             except ValueError:
                 continue
-            if value > 0 and (not times or abs(value - times[-1]) > 1e-6):
-                times.append(round(value, 3))
+            # The topic repeats the last lap time and reads inf before the first lap.
+            if math.isfinite(value) and value > 0 and (not times or value != times[-1]):
+                times.append(value)
     return times
 
 
