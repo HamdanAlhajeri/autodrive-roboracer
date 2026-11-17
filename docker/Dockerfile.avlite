@@ -2,6 +2,7 @@ FROM autodriveecosystem/autodrive_roboracer_api:2026-icra-practice AS ros-base
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-ackermann-msgs python3-venv python3-tk python3-pytest \
+    ros-humble-slam-toolbox ros-humble-nav2-map-server \
     && rm -rf /var/lib/apt/lists/*
 ENV PYTHONPATH=/opt/integration
 WORKDIR /opt/integration

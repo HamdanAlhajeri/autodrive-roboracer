@@ -88,7 +88,7 @@ def test_no_finish_without_departing_the_start_area():
 def test_heading_must_match_start_direction():
     detector = started(LapSettings(min_travel_m=1.0))
     detector.departed = True
-    detector.travel_m = 20.0
+    detector.travel_m = detector.lap_travel_m = 20.0
     start = circle_pose(0.0)
     before = compose(start, (-0.05, 0.0, math.pi / 2))
     after = compose(start, (0.05, 0.0, math.pi / 2))
@@ -110,3 +110,21 @@ def test_scan_similarity():
     assert scan_similarity(START_SCAN, OTHER_SCAN, 0.1) < 0.2
     assert scan_similarity([None, None], [None, None], 0.1) == 0.0
     assert scan_similarity([1.0], [1.0, 2.0], 0.1) == 0.0
+
+
+def test_three_mapping_laps_complete_only_after_the_third_crossing():
+    detector = started(LapSettings(min_travel_m=15.0, max_travel_m=40.0, laps=3))
+    angles = lap_angles(3.2)
+    results = drive(detector, angles, near_start)
+    index = results.index("complete")
+    assert angles[index] == pytest.approx(3 * 2 * math.pi, abs=0.03)
+    assert detector.laps_completed == 3
+    # Travel limits apply per lap: 3 laps of 25 m pass a 40 m per-lap limit.
+    assert detector.travel_m == pytest.approx(3 * 2 * math.pi * 4, rel=0.01)
+    assert detector.summary()["laps"] == 3
+
+
+def test_lap_count_must_be_a_positive_whole_number():
+    for bad in (0, -1, 2.5, True):
+        with pytest.raises(ValueError):
+            LapSettings(laps=bad)

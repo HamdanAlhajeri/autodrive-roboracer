@@ -17,7 +17,7 @@ Work through these in order. Nothing autonomous moves until step 3 is done.
 - [ ] **4. Validate mapping + localization offline** — replay two separate manual recordings through SLAM Toolbox (map on one, localize on the other) and run the localization report with `--require-map-frame`. Check that every threshold passes.
 - [ ] **5. Install the Jetson runtime** — `bash tools/jetson-setup.sh` installs SLAM Toolbox, the pinned AVLite venv and this stack's ROS packages (see [F1TENTH car](#f1tenth-car-hokuyo--vesc)). The desktop Docker image is not the deployment image.
 - [ ] **6. Stationary hardware tests** — motors disabled or wheels clear: steering direction, actuator bounds, manual override, process failure, connection loss. None may cause movement.
-- [ ] **7. First autonomous mapping lap** — `ros2 launch avlite_roboracer roboracer.launch.py`, then `.\avlite.ps1 car -Action map-start` from the laptop. Verify the car stops near the start, map is accepted, and state reaches `READY`.
+- [ ] **7. First autonomous mapping laps** (3 slow Follow the Gap laps) — `ros2 launch avlite_roboracer roboracer.launch.py`, then `.\avlite.ps1 car -Action map-start` from the laptop. Verify the car stops near the start, map is accepted, and state reaches `READY`.
 - [ ] **8. Track acceptance** — `race-start`, several localized laps, verified `stop`. Record scan alignment, localization error and stop response. Raise speed only after thresholds are established.
 
 Still unverified on real hardware (watch for these in steps 4–7):
@@ -215,7 +215,7 @@ From the laptop (key-based SSH; `-Session` is the value shown by `status`):
 | State | Meaning |
 | --- | --- |
 | `IDLE` | Started; nothing moves. Restarts always begin here. |
-| `MAPPING` | Slow Follow the Gap lap while SLAM Toolbox maps. Needs live heartbeats. |
+| `MAPPING` | Slow Follow the Gap laps (`mapping.laps` in `race.yaml`, 3 by default) while SLAM Toolbox maps. Needs live heartbeats. |
 | `FINALIZING` | Stopped: settle loop closure, save pose graph and map, build and validate map and plan, switch to localization. |
 | `READY` | Validated plan and stable localization. Waits for `race-start`; never starts itself. |
 | `RACING` | Pure Pursuit on the plan with live LiDAR stopping checks. Needs live heartbeats. |
@@ -230,9 +230,10 @@ From the laptop (key-based SSH; `-Session` is the value shown by `status`):
 - Commands name a session, and sessions include a per-boot id, so a delayed command
   cannot start a later session or one from before a restart. Stop and fault revoke
   the current token; read `status` again before issuing a new start.
-- The mapping lap ends only after the car has left the start area, travelled enough by
-  odometry, and crossed the start line forwards with matching heading and a matching
-  scan. A localization correction that jumps across the line does not count.
+- Mapping drives `mapping.laps` laps (3) and then stops. Each lap counts only after the
+  car has left the start area, travelled enough by odometry, and crossed the start line
+  forwards with matching heading and a matching scan. A localization correction that
+  jumps across the line does not count.
 - The map is rejected, and the car stays stopped, when the corrected route disagrees
   with the map, a wall is missing for more than 0.5 m, a wall distance jumps
   (ambiguous section), or the track is narrower than the vehicle envelope. Run

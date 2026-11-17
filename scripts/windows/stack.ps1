@@ -88,7 +88,8 @@ if ($otherSimulator) {
     throw 'Another AutoDRIVE build is open. Close it before starting this track.'
 }
 
-Invoke-AvliteCompose up -d --build bridge actuator avlite
+# odometry is idle input for localization.source: slam; it never commands the car.
+Invoke-AvliteCompose up -d --build bridge actuator odometry avlite
 $simulator = Get-Process -Name 'AutoDRIVE Simulator' -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -eq $simulatorPath } | Select-Object -First 1
 if (-not $simulator) {

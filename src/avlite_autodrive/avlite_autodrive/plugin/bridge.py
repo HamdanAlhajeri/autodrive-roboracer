@@ -29,11 +29,13 @@ class AutoDRIVEWorldBridge(WorldBridge):
     world_capabilities = frozenset({WorldCapability.LIDAR_2D})
     stack_capabilities = frozenset({StackCapability.LOCALIZATION})
 
-    def __init__(self, ego_state=None, pm=None, **kwargs):
+    def __init__(self, ego_state=None, pm=None, localization=None, **kwargs):
         """Connect AVLite to ROS sensor and command topics in a background thread.
 
         Store the LiDAR mounting transform from the rear axle, initialize empty sensor
         history, and create a retained plan publisher so a recorder can join later.
+        localization is a slam_localization.LocalizationConfig to drive on SLAM poses and
+        wheel odometry; None keeps the simulator's ground-truth pose.
         """
         self.ego_state = ego_state or EgoState(x=0.0, y=0.0, theta=0.0)
         self.perception_model = pm or PerceptionModel(ego_vehicle=self.ego_state)
@@ -70,6 +72,15 @@ class AutoDRIVEWorldBridge(WorldBridge):
             Odometry, PREFIX + "/odom", self.on_odom, qos_profile_sensor_data
         )
         self.node.create_subscription(Bool, "/autodrive/reset_command", self.on_reset, 1)
+        self.truth = None  # world (x, y, yaw); only for the localization error diagnostic
+        self.pose_source = None
+        if localization is not None:
+            from avlite_autodrive.slam_localization import SlamPoseSource
+            self.pose_source = SlamPoseSource(self.node, localization)
+            self.pose_timeout_s = self.pose_source.profile.get("timing.pose_timeout_s")
+            self.node.create_subscription(
+                Odometry, self.pose_source.profile.topic("odom"), self.on_wheel_odom,
+                qos_profile_sensor_data)
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self.node)
         self.thread = threading.Thread(target=self.executor.spin, daemon=True)
@@ -77,12 +88,21 @@ class AutoDRIVEWorldBridge(WorldBridge):
 
     @property
     def ready(self):
-        """Report whether a LiDAR cloud and odometry have both arrived within 0.5 seconds."""
+        """Report whether a LiDAR cloud and odometry have both arrived within 0.5 seconds.
+
+        With SLAM localization, also require a fresh map pose that the health monitor
+        accepts; otherwise commands are withheld exactly as for stale sensors.
+        """
         with self.lock:
-            return (
+            sensors = (
                 self.cloud is not None
                 and min(self.scan_time, self.odom_time) > time.monotonic() - 0.5
             )
+        if not sensors or self.pose_source is None:
+            return sensors
+        pose = self.pose_source.pose()
+        return (pose is not None and 0 <= pose[3] <= self.pose_timeout_s
+                and not self.pose_source.failures())
 
     def on_scan(self, msg):
         """Convert a valid LaserScan into sensor-frame points and a real-hit mask.
@@ -107,6 +127,11 @@ class AutoDRIVEWorldBridge(WorldBridge):
             with self.lock:
                 self.odom_time = -math.inf
                 self.last_pose = None
+                self.truth = None
+            return
+        if self.pose_source is not None:
+            with self.lock:
+                self.truth = (x, y, theta)  # reference only; never drives the car
             return
         with self.lock:
             now = time.monotonic()
@@ -119,10 +144,37 @@ class AutoDRIVEWorldBridge(WorldBridge):
             self.ego_state.theta, self.ego_state.velocity = theta, velocity
             self.odom_time = now
 
+    def on_wheel_odom(self, msg):
+        """Take forward speed and odometry freshness from wheel odometry (SLAM mode)."""
+        speed = msg.twist.twist.linear.x
+        with self.lock:
+            if math.isfinite(speed):
+                self.ego_state.velocity = speed
+                self.odom_time = time.monotonic()
+            else:
+                self.odom_time = -math.inf
+
+    def update_slam_pose(self):
+        """Copy the latest SLAM pose into ego_state; a jump resets tracking like a teleport."""
+        pose = self.pose_source.pose()
+        with self.lock:
+            if pose is None:
+                self.last_pose = None
+                return
+            now = time.monotonic()
+            current = (pose[0], pose[1], self.ego_state.velocity, now)
+            if pose_discontinuous(self.last_pose, current):
+                self.reset_generation += 1
+                self.scan_time = -math.inf
+            self.last_pose = current
+            self.ego_state.x, self.ego_state.y, self.ego_state.theta = pose[:3]
+
     def on_reset(self, msg):
         """Invalidate the current sensor state when a simulator reset is announced."""
         if msg.data:
             self.reset()
+            if self.pose_source is not None:
+                self.pose_source.reinitialize()
 
     def reset(self):
         """Clear sensor history and increment the reset generation.
@@ -144,6 +196,8 @@ class AutoDRIVEWorldBridge(WorldBridge):
         The returned frame includes sensor ages and a hit mask. Copies prevent the ROS
         callback thread from changing data while the controller is using it.
         """
+        if self.pose_source is not None:
+            self.update_slam_pose()
         with self.lock:
             self.snapshot_ego = copy.deepcopy(self.ego_state)
             now = time.monotonic()
@@ -192,13 +246,18 @@ class AutoDRIVEWorldBridge(WorldBridge):
                 "controller_lidar_age_s": now - self.scan_time,
                 "controller_odom_age_s": now - self.odom_time,
             }
+            truth = self.truth
+        if self.pose_source is not None:
+            values.update(self.pose_source.diagnostics(truth))
         # Missing inputs remain null rather than JSON Infinity or a fresh zero.
         values = {key: value if value is None or math.isfinite(value) else None
                   for key, value in values.items()}
         self.diagnostics_publisher.publish(String(data=json.dumps(values, allow_nan=False)))
 
     def close(self):
-        """Stop the ROS executor thread and release this bridge's node."""
+        """Stop SLAM, the ROS executor thread and release this bridge's node."""
+        if self.pose_source is not None:
+            self.pose_source.stop()
         self.executor.shutdown(timeout_sec=2)
         self.thread.join(timeout=2)
         self.node.destroy_node()

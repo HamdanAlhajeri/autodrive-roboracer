@@ -17,7 +17,9 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    entrypoint: ["/bin/bash", "-c", "exec ./AutoDRIVE\\ Simulator.x86_64 -batchmode -ip 127.0.0.1 -port 4567"]
+    # -nographics: physics and LiDAR raycasts run without a display (works on Docker Desktop
+    # for Windows too); camera images are blank, which this stack does not use.
+    entrypoint: ["/bin/bash", "-c", "exec ./AutoDRIVE\\ Simulator.x86_64 -batchmode -nographics -ip 127.0.0.1 -port 4567"]
     depends_on:
       - bridge
 
@@ -49,6 +51,20 @@ services:
       - ./config:/config:ro
       - ./src/avlite_autodrive:/opt/integration:ro
 
+  # Wheel odometry and car-style frames for SLAM localization (localization.source: slam).
+  # It never drives the car; the true pose is read once only to log the odometry origin.
+  odometry:
+    image: autodrive-roboracer-bridge:local
+    network_mode: host
+    ipc: host
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    volumes:
+      - ./src/avlite_autodrive:/opt/integration:ro
+    entrypoint: ["/bin/bash", "-c", "source /opt/ros/humble/setup.bash && exec python3 -m avlite_autodrive.sim_odometry ${SIM_ODOMETRY_ARGS:-}"]
+    depends_on:
+      - bridge
+
   avlite:
     image: autodrive-roboracer-avlite:local
     build:
@@ -61,9 +77,12 @@ services:
       ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
       OPENBLAS_NUM_THREADS: 1
       OMP_NUM_THREADS: 1
+      # The car stack's SLAM, profile and localization-health modules.
+      PYTHONPATH: /opt/integration:/opt/roboracer
     volumes:
       - ./config:/config:ro
       - ./src/avlite_autodrive:/opt/integration:ro
+      - ./src/avlite_roboracer:/opt/roboracer:ro
     depends_on:
       - actuator
       - bridge

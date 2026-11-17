@@ -1,6 +1,20 @@
 # AVLite settings use metres, seconds, radians, and m/s (not normalized throttle).
 shared_settings: driving.yaml
 driving_mode: planned  # Follow the validated map; speed profile includes corner braking.
+# Where the planned controller's pose comes from. ground_truth reads the simulator's true
+# pose. slam runs SLAM Toolbox localization on a saved pose graph with wheel odometry (start
+# the sim_odometry service), as on the real car. Paths are relative to this YAML.
+localization:
+  source: ground_truth
+  profile: roboracer/sim_profile.yaml
+  slam_params: roboracer/slam_toolbox.yaml
+  # For source: slam, from a SLAM mapping replay (roboracer_record replay --mode mapping):
+  # pose_graph: maps/slam/practice/posegraph   # without extension
+  # map_yaml: maps/slam/practice/map.yaml
+  # start_pose: [0.0, 0.0, 0.0]                # car at startup, in the SLAM map frame
+  # World pose where the mapping run's odometry started; lets the ground-truth-built race
+  # map and the error diagnostic work in the world frame. Omit for a SLAM-built race map.
+  # map_origin_world: [x, y, yaw]
 planning:
   map_path: maps/practice.json  # Relative to this YAML; available under /config in Docker.
   max_velocity_mps: ${speed_mps}

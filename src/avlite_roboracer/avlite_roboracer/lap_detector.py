@@ -1,13 +1,14 @@
-"""Detect completion of the autonomous mapping lap without simulator counters (no ROS).
+"""Detect completion of the autonomous mapping laps without simulator counters (no ROS).
 
-The starting pose defines a finish line across the track. A lap is complete only after:
+The starting pose defines a finish line across the track. Mapping drives
+``LapSettings.laps`` laps; each lap counts only after:
 
 1. the car departs the start area,
 2. wheel odometry reports enough travel,
 3. the car crosses the finish line forwards, by its own motion, with matching heading,
 4. the current scan resembles the scan recorded at the start.
 
-Travel comes from odometry, not map poses, so a localization correction cannot add
+Departure and travel limits apply to each lap. Travel comes from odometry, not map poses, so a localization correction cannot add
 distance; a crossing during an update whose map motion disagrees with odometry (a
 correction) is ignored.
 """
@@ -32,8 +33,11 @@ class LapSettings:
     correction_tolerance_rad: float = math.radians(5)
     scan_match_tolerance_m: float = 0.15
     min_scan_match: float = 0.6
+    laps: int = 1
 
     def __post_init__(self):
+        if isinstance(self.laps, bool) or not isinstance(self.laps, int):
+            raise ValueError("lap setting laps must be a whole number")
         for name, value in vars(self).items():
             if not (math.isfinite(value) and value > 0):
                 raise ValueError(f"lap setting {name} must be positive")
@@ -66,6 +70,8 @@ class LapDetector:
         self.start_scan = None
         self.state = "idle"
         self.travel_m = 0.0
+        self.lap_travel_m = 0.0
+        self.laps_completed = 0
         self.departed = False
         self.ignored_corrections = 0
         self.rejected_crossings = []
@@ -77,6 +83,8 @@ class LapDetector:
         self.start_scan = list(scan_ranges)
         self.state = "mapping"
         self.travel_m = 0.0
+        self.lap_travel_m = 0.0
+        self.laps_completed = 0
         self.departed = False
         self.ignored_corrections = 0
         self.rejected_crossings = []
@@ -90,6 +98,8 @@ class LapDetector:
     def update(self, map_pose, odom_pose, scan_ranges):
         """Process one localized update; return 'complete', 'mapping' or 'failed'.
 
+        'complete' means the last of the configured laps has been confirmed.
+
         map_pose and odom_pose are base_link in the map and odom frames at the same instant.
         """
         if self.state != "mapping":
@@ -98,8 +108,10 @@ class LapDetector:
         previous_map, previous_odom = self._previous
         self._previous = (tuple(map_pose), tuple(odom_pose))
         odom_step = relative(previous_odom, odom_pose)
-        self.travel_m += math.hypot(odom_step[0], odom_step[1])
-        if self.travel_m > s.max_travel_m:
+        step = math.hypot(odom_step[0], odom_step[1])
+        self.travel_m += step
+        self.lap_travel_m += step
+        if self.lap_travel_m > s.max_travel_m:
             self.state = "failed"
             return self.state
         distance = math.hypot(map_pose[0] - self.start_pose[0], map_pose[1] - self.start_pose[1])
@@ -117,8 +129,8 @@ class LapDetector:
         if odom_step[0] <= 0:
             self.rejected_crossings.append("not moving forwards")
             return self.state
-        if self.travel_m < s.min_travel_m:
-            self.rejected_crossings.append(f"only {self.travel_m:.1f} m travelled")
+        if self.lap_travel_m < s.min_travel_m:
+            self.rejected_crossings.append(f"only {self.lap_travel_m:.1f} m travelled")
             return self.state
         if abs(wrap_angle(map_pose[2] - self.start_pose[2])) > s.heading_tolerance_rad:
             self.rejected_crossings.append("heading does not match the start")
@@ -127,11 +139,18 @@ class LapDetector:
         if match < s.min_scan_match:
             self.rejected_crossings.append(f"scan match {match:.2f} below {s.min_scan_match}")
             return self.state
-        self.state = "complete"
+        self.laps_completed += 1
+        if self.laps_completed >= s.laps:
+            self.state = "complete"
+        else:  # the next lap must leave the start area and travel far enough again
+            self.departed = False
+            self.lap_travel_m = 0.0
         return self.state
 
     def summary(self):
-        return {"state": self.state, "travel_m": self.travel_m, "departed": self.departed,
+        return {"state": self.state, "laps_completed": self.laps_completed,
+                "laps": self.settings.laps, "travel_m": self.travel_m,
+                "lap_travel_m": self.lap_travel_m, "departed": self.departed,
                 "ignored_corrections": self.ignored_corrections,
                 "rejected_crossings": list(self.rejected_crossings[-10:]),
                 "start_pose": list(self.start_pose) if self.start_pose else None}

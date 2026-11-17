@@ -15,6 +15,7 @@ from .plugin import AutoDRIVEFollowTheGap, AutoDRIVEWorldBridge
 from .plugin.planned_controller import AutoDRIVEPlannedController
 from .configuration import load_config
 from .race_planning import prepare_plan
+from .slam_localization import localization_config
 from .response_test import ResponseExperiment, measurement_config
 from .plugin.response_controller import AutoDRIVEResponseController
 
@@ -24,8 +25,9 @@ def main():
 
     Resolve shared settings before creating controllers, and validate the global plan before
     opening the command bridge. Reset tracking after sensor interruptions, publish timing
-    diagnostics, and close ROS resources when stopping. Simulator ground truth supplies
-    localization; this loop does not advance a local vehicle model.
+    diagnostics, and close ROS resources when stopping. By default simulator ground truth
+    supplies localization; with localization.source: slam the pose comes from SLAM Toolbox
+    and wheel odometry instead. This loop does not advance a local vehicle model.
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="/config/avlite.yaml")
@@ -52,6 +54,7 @@ def main():
         ControlSettings.c35_cruise_velocity,
         ControlSettings.c32_ego_max_velocity,
     )
+    localization = localization_config(config, args.config)  # validate before ROS
     mode = config.get("driving_mode", "follow_the_gap")
     if mode not in ("follow_the_gap", "planned"):
         raise ValueError("driving_mode must be follow_the_gap or planned")
@@ -83,7 +86,14 @@ def main():
             "straight_steering_limit_rad": controller.coast_window.steer_limit,
             "preview_distance_m": controller.coast_window.preview_distance,
         }
-    world = AutoDRIVEWorldBridge()
+    world = AutoDRIVEWorldBridge(localization=localization)
+    if localization is not None:
+        # The bridge withholds commands until SLAM reports a healthy, fresh pose.
+        world.pose_source.start()
+        logging.info("Localization: SLAM Toolbox on %s from start pose %s%s",
+                     localization.pose_graph, localization.start_pose,
+                     "" if localization.map_origin_world is None
+                     else f", world origin {localization.map_origin_world}")
     if prepared:
         world.map = prepared.planner.map
         world.reference_point = world.map.reference_point

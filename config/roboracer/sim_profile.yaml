@@ -1,0 +1,79 @@
+# Simulator profile for SLAM localization of the planned algorithm (AutoDRIVE practice sim).
+# Same schema as hardware.yaml so the recorder, replay, recording check and localization
+# report run unchanged. The frames are car-style and separate from the simulator's own
+# ground-truth tree (world -> roboracer_1); avlite_autodrive.sim_odometry provides them.
+# These are simulator facts and starting thresholds, never real-car measurements.
+version: 1
+name: autodrive-sim
+
+frames:
+  map: map
+  odom: odom
+  base_link: base_link   # Rear-axle centre, like AutoDRIVE's roboracer_1.
+  laser: laser
+  imu: imu
+
+topics:
+  scan: /autodrive/roboracer_1/scan        # sim_odometry relay of /lidar in the laser frame
+  odom: /autodrive/roboracer_1/wheel_odom  # encoders + gyro, not ground truth
+  imu: null
+  slam_pose: /pose
+  slam_graph: /slam_toolbox/graph_visualization
+  drive_output: null
+  manual_input: null
+
+transform_owners:
+  odom->base_link: avlite_sim_odometry
+  base_link->laser: avlite_sim_odometry (static)
+  map->odom: slam_toolbox
+
+# AutoDRIVE publishes the LiDAR at (0.2733, 0, 0.096) from the rear axle.
+mounts:
+  laser: {x_m: 0.2733, y_m: 0.0, yaw_rad: 0.0}
+
+vehicle:
+  wheelbase_m: null
+  width_m: null
+  length_m: null
+  rear_axle_to_front_m: null
+
+steering:
+  max_angle_rad: null
+  positive_left: null
+  center_offset_rad: 0.0
+
+motor:
+  max_command_speed_mps: null
+  stop_command_speed_mps: 0.0
+
+measurements:
+  command_latency_s: null
+  braking_deceleration_mps2: null
+  max_acceleration_mps2: null
+  stop_test_speed_mps: null
+  stopping_distance_m: null
+
+limits:
+  mapping_speed_mps: null
+  racing_speed_mps: null
+
+deadman:
+  topic: null
+  button: null
+  timeout_s: 0.25
+
+timing:
+  command_timeout_s: 0.25
+  authorization_timeout_s: 1.0
+  sensor_timeout_s: 0.25
+  pose_timeout_s: 0.3
+
+# Starting thresholds for withholding commands; tune them on sim runs (plan step 5).
+localization:
+  max_position_stddev_m: 0.15
+  max_yaw_stddev_rad: 0.08
+  min_scan_alignment: 0.7
+  scan_alignment_tolerance_m: 0.10
+  max_motion_mismatch_m: 0.15
+  max_motion_mismatch_rad: 0.10
+  stable_duration_s: 1.0

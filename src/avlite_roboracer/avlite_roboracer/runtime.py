@@ -29,7 +29,7 @@ import numpy as np
 from avlite_autodrive.configuration import load_config
 
 from .command import CommandArbiter, CommandSource, SpeedDemand
-from .lap_detector import LapDetector
+from .lap_detector import LapDetector, LapSettings
 from .localization import (
     LocalizationMonitor, LocalizationThresholds, scan_alignment, scan_points,
 )
@@ -78,6 +78,9 @@ class Runtime:
         self.profile = profile
         self.race_config_path = Path(race_config_path)
         self.race_config = load_config(race_config_path)
+        # Validate now so a bad lap count fails at startup, not at map-start.
+        mapping = self.race_config.get("mapping") or {}
+        self.lap_settings = LapSettings(laps=mapping.get("laps", 1))
         self.slam_params = Path(slam_params)
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -440,7 +443,7 @@ class Runtime:
         self.mapper = AutoDRIVEFollowTheGap(
             racing=mapping_racing_config(self.race_config, self.profile))
         self.speed = SpeedDemand(self.profile.get("limits.mapping_speed_mps"))
-        self.lap = LapDetector()
+        self.lap = LapDetector(self.lap_settings)
         self.lap_started = False
         self.stopping_after_lap = False
         params = effective_parameters(self.slam_params, self.profile, "mapping",

@@ -38,6 +38,12 @@ c30_control:
   c35_valpha: 1.0
   c35_vbeta: 0.0
   c35_vgamma: 0.0
+# Autonomous mapping: Follow the Gap drives this many slow laps (at limits.mapping_speed_mps
+# from hardware.yaml) while SLAM Toolbox maps, then stops and finalizes. Follow the Gap,
+# not Pure Pursuit, because there is no path to pursue until the map exists. Extra laps
+# give loop closure more revisits for a cleaner map.
+mapping:
+  laps: 3
 # Follow the Gap during the mapping lap uses c30_control with the mapping speed from
 # hardware.yaml. These racing values apply only to its gap selection and braking model.
 racing:
