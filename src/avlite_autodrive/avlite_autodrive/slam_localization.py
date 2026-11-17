@@ -196,7 +196,7 @@ class SlamPoseSource:
         """Score each scan against the map at the SLAM pose for the same instant."""
         from avlite_roboracer.localization import scan_alignment, scan_points
         stamp = self.rclpy_time.Time.from_msg(msg.header.stamp)
-        map_pose, odom_pose = self.lookup("map", stamp), self.lookup("odom", stamp)
+        map_pose, odom_pose = self.map_pose(stamp), self.lookup("odom", stamp)
         if map_pose is None or odom_pose is None:
             return
         points = scan_points(msg.ranges, msg.angle_min, msg.angle_increment, msg.range_min,
@@ -227,9 +227,32 @@ class SlamPoseSource:
         pose = (p.x, p.y, yaw_from_quaternion(q.x, q.y, q.z, q.w), age)
         return pose if all(math.isfinite(v) for v in pose) else None
 
+    def map_pose(self, stamp=None):
+        """base_link in the map frame at stamp (latest if None) as (x, y, yaw, age_s).
+
+        SLAM Toolbox stamps map -> odom with the last matched scan plus transform_timeout,
+        which trails live odometry by its matching latency, so a single tf lookup at a
+        recent time fails (no extrapolation). map -> odom is a slowly changing correction:
+        use its latest value with odom -> base_link at the requested time. The age is the
+        odometry's; a stalled SLAM shows up as a missing covariance instead.
+        """
+        from avlite_roboracer.geometry import compose, yaw_from_quaternion
+        odom_pose = self.lookup("odom", stamp)
+        try:
+            t = self.tf.lookup_transform(self.frames["map"], self.frames["odom"],
+                                         self.rclpy_time.Time())
+        except Exception:  # tf2 raises several lookup/extrapolation exception types
+            return None
+        if odom_pose is None:
+            return None
+        q, p = t.transform.rotation, t.transform.translation
+        correction = (p.x, p.y, yaw_from_quaternion(q.x, q.y, q.z, q.w))
+        pose = (*compose(correction, odom_pose[:3]), odom_pose[3])
+        return pose if all(math.isfinite(v) for v in pose) else None
+
     def pose(self):
         """Latest (x, y, yaw, age_s) for the controller, in the race map's frame."""
-        pose = self.lookup("map")
+        pose = self.map_pose()
         if pose is None:
             return None
         return (*to_world(pose[:3], self.settings.map_origin_world), pose[3])

@@ -82,3 +82,60 @@ def test_localization_matches_scans_while_the_car_is_parked(tmp_path):
     assert written["mode"] == "localization"
     base = yaml.safe_load(settings.slam_params.read_text())["slam_toolbox"]["ros__parameters"]
     assert base["minimum_travel_distance"] == 0.2  # the car's shared file is unchanged
+
+
+class _Time:
+    def __init__(self, ns=0):
+        self.nanoseconds = ns
+
+    @classmethod
+    def from_msg(cls, msg):
+        return cls(msg.ns)
+
+    def __sub__(self, other):
+        return _Time(self.nanoseconds - other.nanoseconds)
+
+
+class _FakeTime:
+    Time = _Time
+
+
+class _Clock:
+    def now(self):
+        return _Time(10_000_000_000)
+
+
+class _Node:
+    def get_clock(self):
+        return _Clock()
+
+
+def _transform(x, y, yaw, stamp_ns):
+    from types import SimpleNamespace as NS
+    return NS(header=NS(stamp=NS(ns=stamp_ns)),
+              transform=NS(translation=NS(x=x, y=y, z=0.0),
+                           rotation=NS(x=0.0, y=0.0, z=math.sin(yaw / 2),
+                                       w=math.cos(yaw / 2))))
+
+
+class _LaggingTf:
+    """map -> odom only exists at an older stamp; odom -> base_link is current."""
+
+    def lookup_transform(self, target, source, time):
+        if (target, source) == ("map", "odom"):
+            return _transform(1.0, 2.0, math.pi / 2, 9_400_000_000)
+        if (target, source) == ("odom", "base_link"):
+            return _transform(0.5, 0.0, 0.0, 9_980_000_000)
+        raise LookupError("would extrapolate into the future")
+
+
+def test_map_pose_uses_latest_correction_with_current_odometry():
+    from avlite_autodrive.slam_localization import SlamPoseSource
+    source = SlamPoseSource.__new__(SlamPoseSource)  # no ROS: only the TF math
+    source.frames = {"map": "map", "odom": "odom", "base_link": "base_link"}
+    source.tf, source.node, source.rclpy_time = _LaggingTf(), _Node(), _FakeTime
+    x, y, yaw, age = source.map_pose(_Time(9_980_000_000))
+    assert (x, y) == pytest.approx((1.0, 2.5))
+    assert yaw == pytest.approx(math.pi / 2)
+    assert age == pytest.approx(0.02)  # odometry's age, not the lagging correction's
+    assert source.lookup("map") is None  # the single chained lookup this replaces fails
