@@ -130,6 +130,19 @@ done
 [[ -n "$(topic_value /autodrive/roboracer_1/lap_count data)" ]] || { log "Simulator data never arrived"; exit 1; }
 reset_sim
 
+# --- AVLite's own localization (LOCALIZER=avlite): no mapping run or SLAM map needed ---------
+if [[ "${LOCALIZER:-slam}" == avlite ]]; then
+    reset_sim
+    sleep 3  # the restarted odometry logs the spawn pose once it has an encoder sample
+    ORIGIN="$("${COMPOSE[@]}" logs odometry 2>/dev/null \
+        | grep -o 'map_origin_world for a mapping run): \[[^]]*\]' | tail -1 | sed 's/.*: //')"
+    [[ -n "$ORIGIN" ]] || { log "Spawn pose not logged by odometry"; exit 1; }
+    echo "$ORIGIN" > "$OUT/map_origin_world.txt"
+    log "AVLite LidarLocalization from spawn pose $ORIGIN"
+    write_config avlite avlite "start_pose_world: $ORIGIN"
+    drive_laps avlite avlite
+else
+
 # --- Mapping run (skipped with MAP_FROM=<earlier experiment dir>) ---------------------------
 if [[ -n "${MAP_FROM:-}" ]]; then
     SOURCE_MAP="$(ls -d "$MAP_FROM"/mapping/replay-mapping-* | tail -1)"
@@ -167,6 +180,7 @@ map_yaml: $MAPDIR_C/map.yaml
 start_pose: [0.0, 0.0, 0.0]
 map_origin_world: ${ORIGIN:-null}"
 drive_laps slam slam
+fi  # LOCALIZER
 
 # --- Ground-truth baseline (skipped with SKIP_BASELINE=1) -------------------------------------
 if [[ -z "${SKIP_BASELINE:-}" ]]; then

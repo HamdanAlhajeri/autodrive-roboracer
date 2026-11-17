@@ -29,13 +29,16 @@ class AutoDRIVEWorldBridge(WorldBridge):
     world_capabilities = frozenset({WorldCapability.LIDAR_2D})
     stack_capabilities = frozenset({StackCapability.LOCALIZATION})
 
-    def __init__(self, ego_state=None, pm=None, localization=None, **kwargs):
+    def __init__(self, ego_state=None, pm=None, localization=None, stack_localization=False,
+                 **kwargs):
         """Connect AVLite to ROS sensor and command topics in a background thread.
 
         Store the LiDAR mounting transform from the rear axle, initialize empty sensor
         history, and create a retained plan publisher so a recorder can join later.
         localization is a slam_localization.LocalizationConfig to drive on SLAM poses and
-        wheel odometry; None keeps the simulator's ground-truth pose.
+        wheel odometry; None keeps the simulator's ground-truth pose. stack_localization
+        means an AVLite localization strategy owns the pose: the bridge then reads ground
+        truth only for diagnostics and takes speed from wheel odometry.
         """
         self.ego_state = ego_state or EgoState(x=0.0, y=0.0, theta=0.0)
         self.perception_model = pm or PerceptionModel(ego_vehicle=self.ego_state)
@@ -74,6 +77,12 @@ class AutoDRIVEWorldBridge(WorldBridge):
         self.node.create_subscription(Bool, "/autodrive/reset_command", self.on_reset, 1)
         self.truth = None  # world (x, y, yaw); only for the localization error diagnostic
         self.pose_source = None
+        self.truth_only = bool(stack_localization)
+        if self.truth_only:
+            from avlite_autodrive.sim_odometry import ODOM_TOPIC
+            self.stack_capabilities = frozenset()  # never offer ground truth as LOCALIZATION
+            self.node.create_subscription(Odometry, ODOM_TOPIC, self.on_wheel_odom,
+                                          qos_profile_sensor_data)
         if localization is not None:
             from avlite_autodrive.slam_localization import SlamPoseSource
             self.pose_source = SlamPoseSource(self.node, localization)
@@ -137,7 +146,7 @@ class AutoDRIVEWorldBridge(WorldBridge):
                 self.last_pose = None
                 self.truth = None
             return
-        if self.pose_source is not None:
+        if self.pose_source is not None or self.truth_only:
             with self.lock:
                 self.truth = (x, y, theta)  # reference only; never drives the car
             return
@@ -152,8 +161,19 @@ class AutoDRIVEWorldBridge(WorldBridge):
             self.ego_state.theta, self.ego_state.velocity = theta, velocity
             self.odom_time = now
 
+    def wheel_speed(self):
+        """Latest wheel-odometry speed (m/s), or None when it is stale."""
+        with self.lock:
+            fresh = self.odom_time > time.monotonic() - 0.5
+            return self.ego_state.velocity if fresh else None
+
+    def true_pose(self):
+        """Simulator pose (x, y, yaw) for diagnostics only, or None."""
+        with self.lock:
+            return self.truth
+
     def on_wheel_odom(self, msg):
-        """Take forward speed and odometry freshness from wheel odometry (SLAM mode)."""
+        """Take forward speed and odometry freshness from wheel odometry (SLAM/AVLite mode)."""
         speed = msg.twist.twist.linear.x
         with self.lock:
             if math.isfinite(speed):

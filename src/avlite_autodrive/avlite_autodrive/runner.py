@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import math
 import signal
 import time
 
@@ -16,6 +17,7 @@ from .plugin.planned_controller import AutoDRIVEPlannedController
 from .configuration import load_config
 from .race_planning import prepare_plan
 from .slam_localization import localization_config
+from .avlite_localization import AutoDRIVELidarLocalization, avlite_localization_config
 from .response_test import ResponseExperiment, measurement_config
 from .plugin.response_controller import AutoDRIVEResponseController
 
@@ -55,6 +57,7 @@ def main():
         ControlSettings.c32_ego_max_velocity,
     )
     localization = localization_config(config, args.config)  # validate before ROS
+    stack_localization = avlite_localization_config(config)
     mode = config.get("driving_mode", "follow_the_gap")
     if mode not in ("follow_the_gap", "planned"):
         raise ValueError("driving_mode must be follow_the_gap or planned")
@@ -86,7 +89,14 @@ def main():
             "straight_steering_limit_rad": controller.coast_window.steer_limit,
             "preview_distance_m": controller.coast_window.preview_distance,
         }
-    world = AutoDRIVEWorldBridge(localization=localization)
+    world = AutoDRIVEWorldBridge(localization=localization,
+                                 stack_localization=stack_localization is not None)
+    localizer = None
+    if stack_localization is not None:
+        # AVLite's own ICP owns the pose; ground truth is read only for diagnostics.
+        localizer = AutoDRIVELidarLocalization(pm, stack_localization, world.wheel_speed)
+        logging.info("Localization: AVLite LidarLocalization (ICP) from spawn pose %s",
+                     stack_localization.start_pose_world)
     if localization is not None:
         # The bridge withholds commands until SLAM reports a healthy, fresh pose.
         world.pose_source.start()
@@ -98,7 +108,13 @@ def main():
         world.map = prepared.planner.map
         world.reference_point = world.map.reference_point
         world.stack_capabilities |= frozenset({StackCapability.MAP_RACE_TRACK})
-        ExecutionSettings.c41_world_stack_capabilities = ["LOCALIZATION", "MAP_RACE_TRACK"]
+        # Without LOCALIZATION here AVLite runs the localization strategy, never ground truth.
+        ExecutionSettings.c41_world_stack_capabilities = (
+            ["MAP_RACE_TRACK", "MAP_OCCUPANCY"] if localizer else ["LOCALIZATION", "MAP_RACE_TRACK"])
+        if localizer:
+            # LidarLocalization requires MAP_OCCUPANCY; it builds its own reference map from
+            # the first scan, so the flag only satisfies that declared requirement.
+            world.stack_capabilities |= frozenset({StackCapability.MAP_OCCUPANCY})
         local_planner = ReferencePathPlanner(prepared.global_plan, pm)
         world.publish_plan(prepared.artifact)
     stack = SyncExecuter(
@@ -107,6 +123,7 @@ def main():
         local_planner=local_planner,
         controller=controller,
         world=world,
+        localization=localizer,
         control_dt=0.05,
     )
     stopped = False
@@ -128,6 +145,8 @@ def main():
             ready = world.ready
             if ready != was_ready or generation != world.reset_generation:
                 controller.reset()
+                if localizer:
+                    localizer.reset()  # back at the spawn pose after a reset
                 if local_planner:
                     local_planner.reset()
                 generation = world.reset_generation
@@ -145,12 +164,14 @@ def main():
                     call_perceive=False,
                     call_replan=prepared is not None,
                     replan_dt=0.05,
-                    call_localize=False,
+                    call_localize=localizer is not None,
+                    localization_dt=0.05,
                     pace_control=False,
                 )
                 work_time = time.monotonic() - start
                 world.publish_diagnostics({
                     **controller.diagnostics,
+                    **(stack_localization_diagnostics(pm, world) if localizer else {}),
                     "controller_loop_dt_s": loop_dt,
                     "controller_step_time_s": work_time,
                     "controller_overrun": work_time > 0.05 or loop_dt > 0.075,
@@ -159,6 +180,17 @@ def main():
     finally:
         stack.stop()
         world.close()
+
+
+def stack_localization_diagnostics(pm, world):
+    """AVLite pose error against simulator truth (diagnostic only; never drives the car)."""
+    truth, ego = world.true_pose(), pm.ego_vehicle
+    if truth is None:
+        return {}
+    yaw = math.atan2(math.sin(ego.theta - truth[2]), math.cos(ego.theta - truth[2]))
+    return {"localization_ok": 1.0,
+            "localization_error_m": math.hypot(ego.x - truth[0], ego.y - truth[1]),
+            "localization_yaw_error_rad": abs(yaw)}
 
 
 if __name__ == "__main__":

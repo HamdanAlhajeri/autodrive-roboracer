@@ -65,14 +65,14 @@ def run_summary(out, label):
 
 def main(out):
     out = Path(out)
-    result = {label: run_summary(out, label) for label in ("mapping", "slam", "baseline")}
+    result = {label: run_summary(out, label) for label in ("mapping", "slam", "avlite", "baseline")}
     origin = out / "map_origin_world.txt"
     result["map_origin_world"] = origin.read_text().strip() if origin.exists() else None
     (out / "summary.json").write_text(json.dumps(result, indent=2) + "\n")
     lines = ["# Simulator localization experiment", "",
              "| Run | Laps | Collisions | Lap times (s) | Loc. OK | Error median / p95 / max (m) |",
              "| --- | --- | --- | --- | --- | --- |"]
-    for label in ("mapping", "slam", "baseline"):
+    for label in ("mapping", "slam", "avlite", "baseline"):
         r = result[label]
         err = r.get("localization_error_m")
         error = "-" if not err else "{median} / {p95} / {max}".format(**err)

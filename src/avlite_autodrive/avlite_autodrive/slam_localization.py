@@ -19,7 +19,7 @@ from pathlib import Path
 import threading
 import time
 
-SOURCES = ("ground_truth", "slam")
+SOURCES = ("ground_truth", "slam", "avlite")  # avlite: see avlite_localization.py
 # SLAM Toolbox only matches a scan after the car travels minimum_travel_distance or turns
 # minimum_travel_heading. The health monitor needs a fresh SLAM pose before the bridge
 # releases commands, so with the car parked at the start neither would ever happen. Zero
@@ -83,7 +83,7 @@ def localization_config(config, config_path):
     source = block.get("source", "ground_truth")
     if source not in SOURCES:
         raise ValueError(f"localization.source must be one of {', '.join(SOURCES)}")
-    if source == "ground_truth":
+    if source != "slam":
         return None
     base = Path(config_path).parent
 
