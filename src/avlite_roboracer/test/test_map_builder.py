@@ -1,10 +1,16 @@
+import json
+
 import numpy as np
 import pytest
 
+from avlite_autodrive.configuration import load_config
 from avlite_autodrive.race_map import validate_map
+from avlite_autodrive.race_planning import prepare_plan
+from avlite_roboracer import map_builder
 from avlite_roboracer.map_builder import MapRejected, build_hardware_map, lap_route
 from avlite_roboracer.occupancy import FREE, OCCUPIED, UNKNOWN, OccupancyGrid
-from roboracer_fixtures import annulus_grid, circle_nodes
+from avlite_roboracer.records import write_records
+from roboracer_fixtures import ROOT, annulus_grid, circle_nodes
 
 
 def build(grid=None, nodes=None, radius=0.15, allowance=0.05):
@@ -109,3 +115,80 @@ def test_occupancy_roundtrip_and_ray_casting(tmp_path):
     assert loaded.cast((6.4, 0.0), (1.0, 0.0), 2.0)[1] in ("unknown", "outside")
     assert loaded.distance_to_occupied([[4.0, 0.0]])[0] == pytest.approx(0.95, abs=0.06)
     assert loaded.values([[100.0, 0.0]])[0] == UNKNOWN
+
+
+# ------------------------------------------------------------- replay command
+AVLITE_CONFIG = ROOT / "config" / "avlite.yaml"
+
+
+def replay_dir(tmp_path, nodes=None, grid=None, graphs=None):
+    """A mapping-replay output: map.yaml/map.pgm plus exported pose-graph records."""
+    directory = tmp_path / "replay-mapping-20261117-000000"
+    directory.mkdir()
+    (grid or annulus_grid()).save(directory / "map.yaml")
+    if graphs is None:
+        # An early, uncorrected graph first: only the last (optimized) one may be used.
+        graphs = [circle_nodes(radius=4.6, laps=0.5), nodes or circle_nodes()]
+    records = [{"kind": "graph", "topic": "/slam_toolbox/graph_visualization",
+                "rx_ns": 1_000_000_000 * (i + 1), "frame": "map", "nodes": g}
+               for i, g in enumerate(graphs)]
+    write_records(directory / "records.jsonl", records)
+    return directory
+
+
+def test_replay_command_writes_a_map_prepare_plan_accepts(tmp_path, capsys):
+    source = replay_dir(tmp_path)
+    out = tmp_path / "maps"
+    assert map_builder.main([str(source), "--profile", str(AVLITE_CONFIG),
+                             "--name", "slam-test", "--output-dir", str(out),
+                             "--no-plot"]) == 0
+    assert "not simulator ground truth" in capsys.readouterr().out
+    data = json.loads((out / "slam-test.json").read_text())
+    assert data["source"] == "slam_toolbox_pose_graph_and_occupancy_grid"
+    assert data["ground_truth"] is False and data["frame_id"] == "map"
+    assert data["source_pose_graph"] == "records.jsonl"
+    assert data["source_pose_graph_nodes"] == len(circle_nodes())
+    assert np.allclose(np.linalg.norm(data["ReferencePath"], axis=1), 4.0, atol=0.02)
+    plan = json.loads((out / "slam-test.plan.json").read_text())
+    assert plan["frame_id"] == "map" and plan["map"] == data
+
+    # The simulator's planned mode loads it once its config names the map and frame.
+    config = load_config(AVLITE_CONFIG)
+    config["planning"].update(map_path=str(out / "slam-test.json"), frame_id="map")
+    prepared = prepare_plan(config, AVLITE_CONFIG)
+    assert 2 * np.pi * 3.0 < prepared.path.length < 2 * np.pi * 5.0  # between the walls
+    config["planning"]["frame_id"] = "world"  # ground-truth frame must not accept it
+    with pytest.raises(ValueError, match="world coordinates"):
+        prepare_plan(config, AVLITE_CONFIG)
+
+
+def test_replay_command_refuses_existing_names(tmp_path, capsys):
+    source = replay_dir(tmp_path)
+    out = tmp_path / "maps"
+    out.mkdir()
+    (out / "taken.json").write_text("{}")
+    assert map_builder.main([str(source), "--profile", str(AVLITE_CONFIG),
+                             "--name", "taken", "--output-dir", str(out), "--no-plot"]) == 1
+    assert "Refusing to overwrite" in capsys.readouterr().err
+    assert (out / "taken.json").read_text() == "{}"
+
+
+def test_replay_command_rejects_without_writing(tmp_path, capsys):
+    source = replay_dir(tmp_path, nodes=circle_nodes(laps=0.8))
+    out = tmp_path / "maps"
+    assert map_builder.main([str(source), "--profile", str(AVLITE_CONFIG),
+                             "--name", "open", "--output-dir", str(out), "--no-plot"]) == 1
+    assert "does not close" in capsys.readouterr().err
+    assert not out.exists() or not list(out.glob("open*"))
+
+
+def test_replay_without_graph_records_is_rejected(tmp_path):
+    source = replay_dir(tmp_path, graphs=[])
+    (source / "records.jsonl").write_text(json.dumps(
+        {"kind": "pose", "topic": "/pose", "rx_ns": 1, "frame": "map"}) + "\n")
+    with pytest.raises(MapRejected, match="no pose-graph records"):
+        map_builder.load_replay_graph(source)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with pytest.raises(MapRejected, match="neither records.jsonl nor bag"):
+        map_builder.load_replay_graph(empty)

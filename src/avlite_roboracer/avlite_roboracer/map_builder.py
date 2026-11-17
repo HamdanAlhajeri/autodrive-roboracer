@@ -3,14 +3,32 @@
 Unlike avlite_autodrive.race_map.build_map, this needs no simulator telemetry or finish
 counters: the route comes from SLAM Toolbox's optimized pose graph and the walls from the
 saved occupancy grid, both in the map frame. Every rejection names where it happened.
+
+As a command it turns a SLAM Toolbox mapping replay into a simulator race map:
+
+    python -m avlite_roboracer.map_builder REPLAY_DIR --profile config/avlite.yaml \
+        --name practice-slam [--output-dir config/maps]
+
+REPLAY_DIR is a `roboracer_record replay --mode mapping` output (map.yaml, map.pgm and
+its bag). Run `roboracer_record export` on it first to read the route from
+records.jsonl without ROS; otherwise the bag is read directly. It writes NAME.json,
+NAME.plan.json and NAME.png, like `avlite.ps1 map`, and refuses existing names.
 """
 
+import argparse
 from dataclasses import dataclass
+import hashlib
+import json
+from pathlib import Path
+import sys
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d, median_filter
+import yaml
 
 from avlite_autodrive.race_map import ClosedPath, validate_map, xy_array
+
+from .occupancy import OccupancyGrid
 
 
 class MapRejected(ValueError):
@@ -163,3 +181,147 @@ def build_hardware_map(grid, nodes, vehicle_radius_m, tracking_allowance_m,
     except ValueError as exc:
         raise MapRejected(str(exc)) from exc
     return result
+
+
+# ------------------------------------------------------------- replay command
+GRAPH_TOPIC = "/slam_toolbox/graph_visualization"
+
+
+def _graph_from_records(path):
+    """Return the last non-empty pose-graph record in an exported records.jsonl."""
+    from .records import read_records
+    graphs = [r for r in read_records(path) if r["kind"] == "graph" and r.get("nodes")]
+    if not graphs:
+        raise MapRejected(f"{path}: no pose-graph records; was the replay in mapping mode?")
+    return graphs[-1]
+
+
+def _graph_from_bag(bag, topic):
+    """Read the last pose-graph message on topic from a replay's rosbag2 (needs ROS)."""
+    import rosbag2_py
+    from rclpy.serialization import deserialize_message
+    from visualization_msgs.msg import MarkerArray
+
+    from .records import graph_record
+
+    meta = yaml.safe_load((Path(bag) / "metadata.yaml").read_text(encoding="utf-8"))
+    storage = meta["rosbag2_bagfile_information"]["storage_identifier"]
+    reader = rosbag2_py.SequentialReader()
+    reader.open(rosbag2_py.StorageOptions(uri=str(bag), storage_id=storage),
+                rosbag2_py.ConverterOptions("cdr", "cdr"))
+    reader.set_filter(rosbag2_py.StorageFilter(topics=[topic]))
+    last = None
+    while reader.has_next():
+        _, data, _ = reader.read_next()
+        record = graph_record(deserialize_message(data, MarkerArray))
+        if record["nodes"]:
+            last = record
+    if last is None:
+        raise MapRejected(f"{bag}: no {topic} messages with pose-graph nodes")
+    return last
+
+
+def load_replay_graph(replay_dir, topic=GRAPH_TOPIC):
+    """Return (nodes, frame, source) for the final optimized pose graph of a replay.
+
+    The last graph message holds the positions corrected by loop closure. Prefer the
+    exported records.jsonl; fall back to reading the bag directly.
+    """
+    replay_dir = Path(replay_dir)
+    records = replay_dir / "records.jsonl"
+    if records.exists():
+        graph, source = _graph_from_records(records), "records.jsonl"
+    elif (replay_dir / "bag").is_dir():
+        graph, source = _graph_from_bag(replay_dir / "bag", topic), f"bag:{topic}"
+    else:
+        raise MapRejected(f"{replay_dir}: neither records.jsonl nor bag/ found")
+    return graph["nodes"], graph.get("frame"), source
+
+
+def _outputs(output_dir, name):
+    """Return the .json/.plan.json/.png paths, refusing names that already exist."""
+    if not name or Path(name).name != name or name.endswith(".json"):
+        raise ValueError(f"--name must be a bare map name, not {name!r}")
+    base = Path(output_dir) / name
+    paths = [base.parent / (base.name + suffix) for suffix in (".json", ".plan.json", ".png")]
+    existing = [str(p) for p in paths if p.exists()]
+    if existing:
+        raise FileExistsError(f"Refusing to overwrite {', '.join(existing)}")
+    return paths
+
+
+def build_replay_map(replay_dir, config_path, name, output_dir="config/maps",
+                     topic=GRAPH_TOPIC, plot=True):
+    """Build, validate and write a race map and plan from a SLAM mapping replay.
+
+    The AVLite config supplies the vehicle radius and tracking allowance for the boundary
+    checks and the limits for racing-line validation (prepare_plan), the same two checks
+    Jetson finalization runs. The map keeps SLAM's frame (normally "map"), so racing on it
+    needs planning.frame_id set to that frame. Return the written paths.
+    """
+    from avlite_autodrive.configuration import load_config
+    from avlite_autodrive.race_planning import prepare_plan
+
+    replay_dir = Path(replay_dir)
+    map_path, plan_path, png_path = _outputs(output_dir, name)
+    map_yaml = replay_dir / "map.yaml"
+    if not map_yaml.exists():
+        raise MapRejected(f"{map_yaml} not found; was the mapping replay's map saved?")
+    nodes, frame, source = load_replay_graph(replay_dir, topic)
+    grid = OccupancyGrid.load(map_yaml, frame or "map")
+    config = load_config(config_path)
+    planning = config.setdefault("planning", {})
+    racemap = build_hardware_map(grid, nodes, planning.get("vehicle_radius_m", 0.24),
+                                 planning.get("tracking_allowance_m", 0.05))
+    image = yaml.safe_load(map_yaml.read_text(encoding="utf-8"))["image"]
+    racemap.update({
+        "ground_truth": False, "source_replay": str(replay_dir),
+        "source_pose_graph": source, "source_pose_graph_nodes": len(nodes),
+        "source_map_sha256": hashlib.sha256((replay_dir / image).read_bytes()).hexdigest(),
+    })
+    planning.update(map_path=str(map_path.resolve()), frame_id=grid.frame_id)
+    map_path.parent.mkdir(parents=True, exist_ok=True)
+    map_path.write_text(json.dumps(racemap, indent=2, allow_nan=False) + "\n")
+    try:
+        prepared = prepare_plan(config, config_path)
+    except Exception:
+        map_path.unlink()  # never leave a map whose racing line failed validation
+        raise
+    prepared.save(plan_path)
+    written = [map_path, plan_path]
+    if plot:
+        try:
+            from avlite_autodrive.race_map import plot_map
+            plot_map(racemap, png_path, prepared.artifact)
+            written.append(png_path)
+        except ImportError as exc:
+            print(f"Skipping preview: {exc}", file=sys.stderr)
+    return written
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("replay", type=Path, help="replay --mode mapping output directory")
+    parser.add_argument("--profile", type=Path, required=True,
+                        help="AVLite config YAML (vehicle envelope and planning limits)")
+    parser.add_argument("--name", required=True, help="map name, e.g. practice-slam")
+    parser.add_argument("--output-dir", type=Path, default=Path("config/maps"))
+    parser.add_argument("--graph-topic", default=GRAPH_TOPIC)
+    parser.add_argument("--no-plot", action="store_true", help="skip the PNG preview")
+    args = parser.parse_args(argv)
+    try:
+        written = build_replay_map(args.replay, args.profile, args.name, args.output_dir,
+                                   args.graph_topic, plot=not args.no_plot)
+    except (MapRejected, ValueError, OSError) as exc:
+        print(f"Map rejected: {exc}", file=sys.stderr)
+        return 1
+    for path in written:
+        print(f"Wrote {path}")
+    print("SLAM-built map (not simulator ground truth): race on it with planning.map_path "
+          "set to the .json and planning.frame_id: map.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
