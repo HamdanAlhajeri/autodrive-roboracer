@@ -59,8 +59,9 @@ def test_map_origin_aligns_slam_poses_with_the_world_frame():
 def test_localization_matches_scans_while_the_car_is_parked(tmp_path):
     """Zero travel thresholds by default, so SLAM reports a pose before the car moves."""
     settings = localization_config(slam_block(), CONFIG)
-    assert dict(settings.slam_overrides) == {"minimum_travel_distance": 0.0,
-                                             "minimum_travel_heading": 0.0}
+    assert {k: v for k, v in settings.slam_overrides if k.startswith("minimum_travel")} == {
+        "minimum_travel_distance": 0.0, "minimum_travel_heading": 0.0}
+    assert dict(settings.slam_overrides)["correlation_search_space_resolution"] == 0.025
     custom = localization_config(slam_block(slam_overrides={"minimum_time_interval": 0.2}),
                                  CONFIG)
     assert dict(custom.slam_overrides)["minimum_time_interval"] == 0.2

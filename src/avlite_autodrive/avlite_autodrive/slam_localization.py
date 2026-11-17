@@ -24,7 +24,12 @@ SOURCES = ("ground_truth", "slam")
 # minimum_travel_heading. The health monitor needs a fresh SLAM pose before the bridge
 # releases commands, so with the car parked at the start neither would ever happen. Zero
 # thresholds make localization match every scan, rate-limited by minimum_time_interval.
-DEFAULT_SLAM_OVERRIDES = {"minimum_travel_distance": 0.0, "minimum_travel_heading": 0.0}
+# The car's mapping search (0.5 m window at 1 cm) took ~0.5 s per scan on one core beside
+# the simulator, so poses arrived 2 s late. Localization starts from wheel odometry, so a
+# 0.3 m window at 2.5 cm (~17x fewer candidates) is enough and keeps up in real time.
+DEFAULT_SLAM_OVERRIDES = {"minimum_travel_distance": 0.0, "minimum_travel_heading": 0.0,
+                          "correlation_search_space_dimension": 0.3,
+                          "correlation_search_space_resolution": 0.025}
 
 
 @dataclass(frozen=True)
