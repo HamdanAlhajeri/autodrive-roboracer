@@ -20,6 +20,11 @@ import threading
 import time
 
 SOURCES = ("ground_truth", "slam")
+# SLAM Toolbox only matches a scan after the car travels minimum_travel_distance or turns
+# minimum_travel_heading. The health monitor needs a fresh SLAM pose before the bridge
+# releases commands, so with the car parked at the start neither would ever happen. Zero
+# thresholds make localization match every scan, rate-limited by minimum_time_interval.
+DEFAULT_SLAM_OVERRIDES = {"minimum_travel_distance": 0.0, "minimum_travel_heading": 0.0}
 
 
 @dataclass(frozen=True)
@@ -31,6 +36,19 @@ class LocalizationConfig:
     start_pose: tuple        # (x, y, yaw) of the car at startup, in the SLAM map frame
     map_origin_world: tuple = None  # world pose of the SLAM map origin, if known
     log_dir: Path = Path("/tmp/avlite_localization")
+    slam_overrides: tuple = tuple(DEFAULT_SLAM_OVERRIDES.items())  # (name, value) pairs
+
+
+def _overrides(value):
+    """Merge localization.slam_overrides over the defaults; values must be scalars."""
+    if value is None:
+        value = {}
+    if not isinstance(value, dict) or not all(
+            isinstance(k, str) and isinstance(v, (bool, int, float, str))
+            and not (isinstance(v, float) and not math.isfinite(v))
+            for k, v in value.items()):
+        raise ValueError("localization.slam_overrides must map parameter names to scalars")
+    return tuple({**DEFAULT_SLAM_OVERRIDES, **value}.items())
 
 
 def _pose(value, name):
@@ -69,7 +87,18 @@ def localization_config(config, config_path):
         start_pose=_pose(block.get("start_pose", [0.0, 0.0, 0.0]), "start_pose"),
         map_origin_world=None if origin is None else _pose(origin, "map_origin_world"),
         log_dir=Path(block.get("log_dir", "/tmp/avlite_localization")),
+        slam_overrides=_overrides(block.get("slam_overrides")),
     )
+
+
+def apply_slam_overrides(params_file, overrides):
+    """Rewrite an effective SLAM Toolbox parameter file with the given overrides."""
+    import yaml
+    path = Path(params_file)
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data["slam_toolbox"]["ros__parameters"].update(dict(overrides))
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    return path
 
 
 def to_world(map_pose, origin):
@@ -123,6 +152,7 @@ class SlamPoseSource:
         params = effective_parameters(s.slam_params, self.profile, "localization",
                                       s.log_dir / "slam_localization.yaml",
                                       map_file=s.pose_graph, start_pose=s.start_pose)
+        apply_slam_overrides(params, s.slam_overrides)
         self.slam.start("localization", params)
 
     def stop(self):

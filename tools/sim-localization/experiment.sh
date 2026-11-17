@@ -9,6 +9,7 @@
 # 3. Build the SLAM map offline (recorder replay --mode mapping).
 # 4. Localization run: reset, then drive the same planned algorithm on SLAM poses.
 # 5. Baseline run: the same on ground truth. Then summarize both.
+# MAP_FROM=log/sim-localization/<stamp> skips steps 2-3 and reuses that run's SLAM map.
 # Results land in log/sim-localization/<stamp>/ (summary.json, summary.md).
 set -euo pipefail
 SPEED="${1:-2.5}"
@@ -21,24 +22,39 @@ mkdir -p "$OUT"
 export MSYS_NO_PATHCONV=1
 win() { if command -v cygpath >/dev/null; then cygpath -wa "$1"; else realpath "$1"; fi; }
 W_REPO="$(win "$REPO")"; W_OUT="$(win "$OUT")"
-COMPOSE=(docker compose -f docker-compose.avlite.yml)
 IMAGE=autodrive-roboracer-avlite:local
+# SIM=windows drives the visible native Windows simulator (.\avlite.ps1 stack, then select
+# Connection and Autonomous in its window); ROS containers share the bridge's network.
+# Otherwise the headless Linux simulator runs in Docker on the host network.
+export COMPOSE_PROJECT_NAME=autodrive-roboracer  # same containers from any worktree
+if [[ "${SIM:-docker}" == windows ]]; then
+    COMPOSE=(docker compose -f docker-compose.avlite.yml -f docker-compose.windows.yml)
+    SERVICES=(bridge actuator odometry)
+    NETWORK=container:autodrive-roboracer-bridge-1
+else
+    COMPOSE=(docker compose -f docker-compose.avlite.yml)
+    SERVICES=(simulator bridge actuator odometry)
+    NETWORK=host
+fi
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" | tee -a "$OUT/experiment.log"; }
 
-# Run a command in the AVLite image on the host network (ROS domain 0, like the stack).
+# Run a command in the AVLite image on the stack's ROS network (domain 0, like the stack).
 ros() {
     local name="$1"; shift
-    local detach=()
-    [[ "$name" != "-" ]] && detach=(-d --name "$name")
-    docker run --rm "${detach[@]}" --network host --ipc host -e ROS_DOMAIN_ID=0 \
+    local detach=() run="$*"
+    # A named container runs one command: exec it, so it (not bash as PID 1, which ignores
+    # SIGINT) receives stop()'s Ctrl+C and shuts down cleanly (bags close, SLAM stops).
+    [[ "$name" != "-" ]] && detach=(-d --name "$name") && run="exec $*"
+    docker run --rm "${detach[@]}" --network "$NETWORK" --ipc host -e ROS_DOMAIN_ID=0 \
         -e PYTHONPATH=/opt/integration:/opt/roboracer \
         -e OPENBLAS_NUM_THREADS=1 -e OMP_NUM_THREADS=1 \
         -v "$W_REPO\\config:/config:ro" -v "$W_REPO\\src\\avlite_autodrive:/opt/integration:ro" \
         -v "$W_REPO\\src\\avlite_roboracer:/opt/roboracer:ro" -v "$W_OUT:/out" \
-        --entrypoint bash "$IMAGE" -c "source /opt/ros/humble/setup.bash && $*"
+        --entrypoint bash "$IMAGE" -c "source /opt/ros/humble/setup.bash && $run"
 }
+# Ctrl+C each container, then give it 20 s to exit before docker stops it outright.
 stop() { for c in "$@"; do docker kill -s INT "$c" >/dev/null 2>&1 || true; done
-         for c in "$@"; do docker wait "$c" >/dev/null 2>&1 || true; done; }
+         for c in "$@"; do timeout 20 docker wait "$c" >/dev/null 2>&1              || docker stop -t 2 "$c" >/dev/null 2>&1 || true; done; }
 cleanup() { stop rr-avlite rr-rec rr-truth rr-diag rr-laps; }
 trap cleanup EXIT
 
@@ -48,8 +64,10 @@ topic_value() {  # topic_value TOPIC FIELD -> one value or empty
 
 reset_sim() {
     log "Resetting the simulator"
-    ros - "ros2 topic pub --once /autodrive/reset_command std_msgs/msg/Bool '{data: true}' >/dev/null"
-    sleep 3
+    # The bridge holds the last flag: true re-spawns the car every frame until false.
+    ros - "ros2 topic pub --once /autodrive/reset_command std_msgs/msg/Bool '{data: true}' >/dev/null
+           sleep 1; ros2 topic pub --once /autodrive/reset_command std_msgs/msg/Bool '{data: false}' >/dev/null"
+    sleep 2
     "${COMPOSE[@]}" restart odometry >/dev/null  # odometry restarts at the spawn pose
     sleep 3
 }
@@ -82,8 +100,8 @@ drive_laps() {
     start_lap="$(topic_value /autodrive/roboracer_1/lap_count data)"; start_lap="${start_lap:-0}"
     start_col="$(topic_value /autodrive/roboracer_1/collision_count data)"; start_col="${start_col:-0}"
     log "$label: driving $LAPS laps at up to $SPEED m/s (lap counter $start_lap)"
-    ros rr-diag "ros2 topic echo /avlite/controller_diagnostics --field data > /out/$label-diagnostics.txt" >/dev/null
-    ros rr-laps "ros2 topic echo /autodrive/roboracer_1/last_lap_time --field data > /out/$label-lap-times.txt" >/dev/null
+    ros rr-diag "ros2 topic echo --field data /avlite/controller_diagnostics std_msgs/msg/String > /out/$label-diagnostics.txt" >/dev/null
+    ros rr-laps "ros2 topic echo --field data /autodrive/roboracer_1/last_lap_time std_msgs/msg/Float32 > /out/$label-lap-times.txt" >/dev/null
     ros rr-avlite "python -m avlite_autodrive.runner --config /out/$config.yaml > /out/$label-runner.log 2>&1" >/dev/null
     deadline=$((SECONDS + 120 + 60 * LAPS))
     while (( SECONDS < deadline )); do
@@ -100,8 +118,8 @@ drive_laps() {
 }
 
 log "Experiment $STAMP: speed $SPEED m/s, $LAPS laps per run"
-log "Starting headless simulator, bridge, actuator and odometry"
-"${COMPOSE[@]}" up -d simulator bridge actuator odometry >/dev/null
+log "Starting ${SERVICES[*]} (SIM=${SIM:-docker})"
+"${COMPOSE[@]}" up -d "${SERVICES[@]}" >/dev/null
 for _ in $(seq 1 30); do
     [[ -n "$(topic_value /autodrive/roboracer_1/lap_count data)" ]] && break
     sleep 5
@@ -109,7 +127,16 @@ done
 [[ -n "$(topic_value /autodrive/roboracer_1/lap_count data)" ]] || { log "Simulator data never arrived"; exit 1; }
 reset_sim
 
-# --- Mapping run -------------------------------------------------------------------------
+# --- Mapping run (skipped with MAP_FROM=<earlier experiment dir>) ---------------------------
+if [[ -n "${MAP_FROM:-}" ]]; then
+    SOURCE_MAP="$(ls -d "$MAP_FROM"/mapping/replay-mapping-* | tail -1)"
+    MAPDIR="$OUT/mapping/$(basename "$SOURCE_MAP")"
+    mkdir -p "$MAPDIR"
+    cp "$SOURCE_MAP"/map.yaml "$SOURCE_MAP"/map.pgm "$SOURCE_MAP"/posegraph.* "$MAPDIR"/
+    cp "$MAP_FROM/map_origin_world.txt" "$OUT/"
+    ORIGIN="$(cat "$OUT/map_origin_world.txt")"
+    log "Reusing SLAM map $SOURCE_MAP (origin in world ${ORIGIN:-unknown})"
+else
 write_config mapping ground_truth
 ros rr-rec "python -m avlite_roboracer.recorder record --profile /config/roboracer/sim_profile.yaml --output /out/mapping --purpose 'sim mapping run'" >/dev/null
 ros rr-truth "ros2 bag record -o /out/truth /autodrive/roboracer_1/odom /autodrive/roboracer_1/wheel_odom" >/dev/null
@@ -125,6 +152,7 @@ ros - "python -m avlite_roboracer.recorder export /out/mapping --profile /config
 log "Building the SLAM map from the mapping run"
 ros - "python -m avlite_roboracer.recorder replay /out/mapping --profile /config/roboracer/sim_profile.yaml --mode mapping --slam-params /config/roboracer/slam_toolbox.yaml > /out/replay-mapping.log 2>&1"
 MAPDIR="$(ls -d "$OUT"/mapping/replay-mapping-* | tail -1)"
+fi
 [[ -f "$MAPDIR/map.yaml" ]] || { log "Mapping replay produced no map"; exit 1; }
 MAPDIR_C="/out/mapping/$(basename "$MAPDIR")"
 log "SLAM map: $MAPDIR"
