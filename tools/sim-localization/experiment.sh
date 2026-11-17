@@ -58,8 +58,9 @@ stop() { for c in "$@"; do docker kill -s INT "$c" >/dev/null 2>&1 || true; done
 cleanup() { stop rr-avlite rr-rec rr-truth rr-diag rr-laps; }
 trap cleanup EXIT
 
-topic_value() {  # topic_value TOPIC FIELD -> one value or empty
-    ros - "timeout 5 ros2 topic echo --once --field $2 $1 2>/dev/null | head -1" | tr -d '\r' || true
+topic_value() {  # topic_value TOPIC FIELD -> one number or empty (never a ROS warning)
+    ros - "timeout 5 ros2 topic echo --once --field $2 $1 2>/dev/null" | tr -d '\r' \
+        | grep -m1 -E '^-?[0-9]+([.][0-9]+)?$' || true
 }
 
 reset_sim() {
