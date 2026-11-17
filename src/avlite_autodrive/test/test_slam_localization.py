@@ -139,3 +139,21 @@ def test_map_pose_uses_latest_correction_with_current_odometry():
     assert yaw == pytest.approx(math.pi / 2)
     assert age == pytest.approx(0.02)  # odometry's age, not the lagging correction's
     assert source.lookup("map") is None  # the single chained lookup this replaces fails
+
+
+class _ScanAheadTf(_LaggingTf):
+    """Like the sim: odometry only exists up to 3 ms before the newest scan."""
+
+    def lookup_transform(self, target, source, time):
+        if (target, source) == ("odom", "base_link") and time.nanoseconds:
+            raise LookupError("would extrapolate into the future")
+        return super().lookup_transform(target, source, time)
+
+
+def test_scan_a_few_ms_ahead_of_odometry_still_gets_a_pose():
+    from avlite_autodrive.slam_localization import SlamPoseSource
+    source = SlamPoseSource.__new__(SlamPoseSource)
+    source.frames = {"map": "map", "odom": "odom", "base_link": "base_link"}
+    source.tf, source.node, source.rclpy_time = _ScanAheadTf(), _Node(), _FakeTime
+    assert source.map_pose(_Time(9_983_000_000)) is not None  # 3 ms after odometry
+    assert source.map_pose(_Time(9_980_000_000 + 60_000_000)) is None  # 60 ms: too far

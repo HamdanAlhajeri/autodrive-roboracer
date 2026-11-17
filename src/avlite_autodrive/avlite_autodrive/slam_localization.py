@@ -38,6 +38,8 @@ DEFAULT_SLAM_OVERRIDES = {"minimum_travel_distance": 0.0, "minimum_travel_headin
 # The driven pose stays current (map -> odom composed with live odometry); the covariance
 # describing it may be this old before the estimate counts as unreported.
 COVARIANCE_MAX_AGE_S = 1.0
+# How much older than a scan the latest odometry may be when used for that scan (see lookup).
+STAMP_TOLERANCE_S = 0.05
 
 
 @dataclass(frozen=True)
@@ -214,13 +216,26 @@ class SlamPoseSource:
 
     # ------------------------------------------------------------------ queries
     def lookup(self, target, stamp=None):
-        """Return base_link in the target frame as (x, y, yaw, age_s), or None."""
+        """Return base_link in the target frame as (x, y, yaw, age_s), or None.
+
+        The simulator publishes each LiDAR scan a few ms before the encoder sample that
+        moves odometry past it, and tf2 never extrapolates. So when the exact time is not
+        available yet, use the latest transform if it is at most STAMP_TOLERANCE_S older.
+        """
         from avlite_roboracer.geometry import yaw_from_quaternion
+        frames = (self.frames[target], self.frames["base_link"])
         try:
-            t = self.tf.lookup_transform(self.frames[target], self.frames["base_link"],
-                                         stamp or self.rclpy_time.Time())
+            t = self.tf.lookup_transform(*frames, stamp or self.rclpy_time.Time())
         except Exception:  # tf2 raises several lookup/extrapolation exception types
-            return None
+            if stamp is None:
+                return None
+            try:
+                t = self.tf.lookup_transform(*frames, self.rclpy_time.Time())
+            except Exception:
+                return None
+            lag = (stamp - self.rclpy_time.Time.from_msg(t.header.stamp)).nanoseconds * 1e-9
+            if not 0 <= lag <= STAMP_TOLERANCE_S:
+                return None
         q, p = t.transform.rotation, t.transform.translation
         age = (self.node.get_clock().now()
                - self.rclpy_time.Time.from_msg(t.header.stamp)).nanoseconds * 1e-9
