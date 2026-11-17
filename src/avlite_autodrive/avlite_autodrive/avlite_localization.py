@@ -88,24 +88,54 @@ class _HitsOnly:
         return getattr(self._frame, name)
 
 
-class AutoDRIVELidarLocalization(LidarLocalization):
-    """AVLite's ICP localization fed real hits, seeded at the spawn pose, with odometry speed."""
+def _relative(a, b):
+    """Pose b expressed in pose a's frame (planar)."""
+    c, s = math.cos(a[2]), math.sin(a[2])
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    return (c * dx + s * dy, -s * dx + c * dy,
+            math.atan2(math.sin(b[2] - a[2]), math.cos(b[2] - a[2])))
 
-    def __init__(self, perception_model, settings, speed_source):
+
+class AutoDRIVELidarLocalization(LidarLocalization):
+    """AVLite's ICP localization fed real hits, seeded at the spawn pose, with odometry speed.
+
+    With an odometry_pose source, each step's ICP starts from the previous estimate moved
+    by the wheel-odometry motion since the last step. ICP alone starts from the previous
+    estimate, and between two parallel walls it cannot see motion along them, so it falls
+    behind on straights; the prediction gives it the motion and ICP corrects the drift.
+    """
+
+    def __init__(self, perception_model, settings, speed_source, odometry_pose=None):
         apply_perception_settings(settings)
         super().__init__(perception_model, PerceptionSettings)
         self.settings = settings
         self.speed_source = speed_source  # callable -> wheel-odometry speed (m/s)
+        self.odometry_pose = odometry_pose  # callable -> (x, y, yaw) in odom frame, or None
+        self._last_odom = None
         self.seed()
 
     def seed(self):
         """Put the ego state at the spawn pose; the next scan becomes the reference map."""
         ego = self.perception_model.ego_vehicle
         ego.x, ego.y, ego.theta = self.settings.start_pose_world
+        self._last_odom = None
+
+    def _predict(self):
+        """Move the running estimate by the odometry motion since the previous step."""
+        odom = self.odometry_pose() if self.odometry_pose else None
+        if odom is None:
+            return
+        if self._last_odom is not None and self._x is not None:
+            dx, dy, dyaw = _relative(self._last_odom, odom)
+            c, s = math.cos(self._theta), math.sin(self._theta)
+            self._x, self._y = self._x + c * dx - s * dy, self._y + s * dx + c * dy
+            self._theta += dyaw
+        self._last_odom = odom
 
     def localize(self, perception_model=None, sensors=None):
         if sensors is not None:
             sensors = _HitsOnly(sensors, self.settings.scan_subsample)
+            self._predict()
         super().localize(perception_model, sensors)
         speed = self.speed_source()
         if speed is not None and math.isfinite(speed):
