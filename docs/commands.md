@@ -48,6 +48,10 @@ then actuator/bridge, and asks the selected simulator to close. Use the same
 # Passive capture: observes an already running car; does not stop it.
 .\avlite.ps1 record -Seconds 120 -Label corner-test
 
+# Live view of where the car thinks it is (red) versus where the simulator says it is (green).
+# Needs visualization.pose_view: true in config\avlite.yaml and a running stack.
+.\avlite.ps1 live
+
 # Offline plan inspection; TargetSpeedMps is a comparison, not a settings edit.
 .\avlite.ps1 speed -TargetSpeedMps 10
 

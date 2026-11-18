@@ -14,6 +14,8 @@ from avlite.c20_planning.c26_local_path_planners import ReferencePathPlanner
 from avlite.c50_common.c51_capabilities import StackCapability
 from .plugin import AutoDRIVEFollowTheGap, AutoDRIVEWorldBridge
 from .plugin.planned_controller import AutoDRIVEPlannedController
+from .plugin.pose_view import PoseComparisonView
+from .pose_view import geometry_from_map, pose_view_config
 from .configuration import load_config
 from .race_planning import prepare_plan
 from .slam_localization import localization_config
@@ -58,6 +60,7 @@ def main():
     )
     localization = localization_config(config, args.config)  # validate before ROS
     stack_localization = avlite_localization_config(config)
+    view_config = pose_view_config(config)  # validate before ROS
     mode = config.get("driving_mode", "follow_the_gap")
     if mode not in ("follow_the_gap", "planned"):
         raise ValueError("driving_mode must be follow_the_gap or planned")
@@ -123,6 +126,17 @@ def main():
             world.stack_capabilities |= frozenset({StackCapability.MAP_OCCUPANCY})
         local_planner = ReferencePathPlanner(prepared.global_plan, pm)
         world.publish_plan(prepared.artifact)
+    view = None
+    if view_config is not None:
+        # A browser view of estimated vs true pose; it only reads, so failing to start is not fatal.
+        geometry = (geometry_from_map(prepared.planner.map, prepared.path.points)
+                    if prepared else None)
+        view = PoseComparisonView(view_config, geometry, localizer)
+        try:
+            view.start()
+        except OSError as error:
+            logging.warning("Pose view not started (port %d): %s", view_config.port, error)
+            view = None
     stack = SyncExecuter(
         perception_model=pm,
         global_planner=prepared.planner if prepared else None,
@@ -131,6 +145,7 @@ def main():
         world=world,
         localization=localizer,
         control_dt=0.05,
+        tasks=[view] if view else None,
     )
     stopped = False
 
@@ -153,6 +168,8 @@ def main():
                 controller.reset()
                 if localizer:
                     localizer.reset()  # back at the spawn pose after a reset
+                if view:
+                    view.reset()
                 if local_planner:
                     local_planner.reset()
                 generation = world.reset_generation
@@ -185,6 +202,8 @@ def main():
             time.sleep(max(0, 0.05 - (time.monotonic() - start)))
     finally:
         stack.stop()
+        if view:
+            view.close()
         world.close()
 
 

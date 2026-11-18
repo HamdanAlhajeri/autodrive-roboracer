@@ -14,6 +14,13 @@ never has two parents. The node reads the true pose once, only to log where in t
 odometry started: that is ``localization.map_origin_world`` when this run is used for mapping. Optional speed-scale and gyro-bias errors make the sim's ideal sensors
 drift like real ones.
 
+Simulator clock: the encoder and gyro values advance in simulated time, but the messages are
+stamped with the wall clock. When the simulator runs slower than real time (about half, on a busy
+laptop), speed and yaw would come out too small by the same factor, and the controller would drive
+that much faster than it believes. ``ClockRate`` measures the factor from the truth topic's
+displacement and reported speed and the odometry then works in simulated time. Only this one number
+is taken from the truth topic, never a pose or a speed. ``--clock-rate 1`` turns it off.
+
     python3 -m avlite_autodrive.sim_odometry --wheel-radius 0.059
 """
 
@@ -32,6 +39,51 @@ def angle_delta(current, previous):
     return math.atan2(math.sin(current - previous), math.cos(current - previous))
 
 
+class ClockRate:
+    """Estimate simulated seconds per second of message time from displacement and speed.
+
+    The simulator reports speed per simulated second, while the stamps count wall-clock seconds. Over
+    a window, distance moved divided by (stamp time x mean reported speed) is the clock rate: 1.0 in
+    real time, about 0.5 when the simulator runs at half speed. A window is skipped when the car is
+    slow, or when the ratio is implausible (a teleport on reset, a stop against a wall).
+    """
+
+    def __init__(self, window_s=0.5, min_speed=1.5, smoothing=0.2, low=0.2, high=1.5):
+        self.window_s, self.min_speed, self.smoothing = window_s, min_speed, smoothing
+        self.low, self.high = low, high
+        self.rate = 1.0
+        self.known = False
+        self._start = None
+        self._speed_sum = 0.0
+        self._count = 0
+
+    def update(self, t, x, y, speed):
+        """Feed one truth sample (stamp s, position m, reported speed m/s); return the rate."""
+        if not all(math.isfinite(v) for v in (t, x, y, speed)):
+            self._start = None
+            return self.rate
+        if self._start is None or t <= self._start[0] or t - self._start[0] > 2.0:
+            self._restart(t, x, y)
+            return self.rate
+        self._speed_sum += abs(speed)
+        self._count += 1
+        elapsed = t - self._start[0]
+        if elapsed < self.window_s:
+            return self.rate
+        mean_speed = self._speed_sum / self._count
+        if mean_speed >= self.min_speed:
+            ratio = math.hypot(x - self._start[1], y - self._start[2]) / (elapsed * mean_speed)
+            if self.low <= ratio <= self.high:
+                self.rate = ratio if not self.known else self.rate + self.smoothing * (ratio - self.rate)
+                self.known = True
+        self._restart(t, x, y)
+        return self.rate
+
+    def _restart(self, t, x, y):
+        self._start = (t, x, y)
+        self._speed_sum, self._count = 0.0, 0
+
+
 class WheelOdometry:
     """Integrate rear-wheel encoder angles and gyro yaw rate into a planar pose.
 
@@ -47,6 +99,7 @@ class WheelOdometry:
         self.speed_scale = speed_scale
         self.yaw_rate_bias = yaw_rate_bias
         self.wrapped = wrapped  # True if encoders report angles in [0, 2*pi) or (-pi, pi]
+        self.time_scale = 1.0   # simulated seconds per stamp second (see ClockRate)
         self.x = self.y = self.yaw = 0.0
         self.speed = self.yaw_rate = 0.0
         self.angles = None
@@ -65,7 +118,7 @@ class WheelOdometry:
         if self.angles is None or t <= self.time:
             self.angles, self.time = (left, right), t
             return False
-        dt = t - self.time
+        dt = (t - self.time) * self.time_scale  # simulated time: speed and gyro rate are per sim second
         delta = angle_delta if self.wrapped else (lambda a, b: a - b)
         rotation = (delta(left, self.angles[0]) + delta(right, self.angles[1])) / 2
         distance = rotation * self.wheel_radius * self.speed_scale
@@ -100,7 +153,14 @@ def main(argv=None):
                         help="Add to the gyro yaw rate in rad/s, e.g. 0.004")
     parser.add_argument("--wrapped-encoders", action="store_true",
                         help="Encoder angles wrap each turn (default: cumulative radians)")
+    parser.add_argument("--clock-rate", default="auto",
+                        help="Simulated seconds per wall second: 'auto' measures it, a number fixes it "
+                             "(1 = off, for a simulator that runs in real time)")
     options, ros_args = parser.parse_known_args(argv)
+    fixed_rate = None if options.clock_rate == "auto" else float(options.clock_rate)
+    if fixed_rate is not None and not (math.isfinite(fixed_rate) and fixed_rate > 0):
+        parser.error("--clock-rate must be 'auto' or a positive number")
+    clock = ClockRate()
     odometry = WheelOdometry(options.wheel_radius, options.speed_scale, options.yaw_rate_bias,
                              options.wrapped_encoders)
     rclpy.init(args=ros_args)
@@ -111,6 +171,7 @@ def main(argv=None):
     static_pub = StaticTransformBroadcaster(node)
     latest = {"left": None, "right": None, "yaw_rate": None}
     origin = {"world": None, "logged": False}
+    clock_log = {"t": 0}
 
     mount = TransformStamped()
     mount.header.stamp = node.get_clock().now().to_msg()
@@ -125,6 +186,7 @@ def main(argv=None):
             latest[side] = float(msg.position[0])
         if side == "right" and None not in latest.values():
             stamp = msg.header.stamp
+            odometry.time_scale = fixed_rate if fixed_rate is not None else clock.rate
             if odometry.update(latest["left"], latest["right"], latest["yaw_rate"],
                                stamp.sec + stamp.nanosec * 1e-9):
                 if not origin["logged"] and origin["world"] is not None:
@@ -140,6 +202,18 @@ def main(argv=None):
                 origin["world"] = odom_state(msg)[:3]
             except ValueError:
                 origin["world"] = None
+        if fixed_rate is None:
+            try:  # only the clock rate is taken from the truth topic, never a pose or speed
+                x, y, _, speed = odom_state(msg)
+            except ValueError:
+                return
+            stamp = msg.header.stamp
+            was_known = clock.known
+            clock.update(stamp.sec + stamp.nanosec * 1e-9, x, y, speed)
+            now = stamp.sec
+            if clock.known and (not was_known or now - clock_log["t"] >= 30):
+                clock_log["t"] = now
+                node.get_logger().info(f"Simulator clock rate {clock.rate:.2f} simulated s per wall s")
 
     def on_imu(msg):
         latest["yaw_rate"] = float(msg.angular_velocity.z)
@@ -176,7 +250,7 @@ def main(argv=None):
     node.create_subscription(LaserScan, PREFIX + "/lidar", on_scan, qos_profile_sensor_data)
     node.get_logger().info(f"Wheel odometry on {ODOM_TOPIC}; scans relayed to {SCAN_TOPIC} "
                            f"(radius {options.wheel_radius} m, scale {options.speed_scale}, "
-                           f"gyro bias {options.yaw_rate_bias} rad/s)")
+                           f"gyro bias {options.yaw_rate_bias} rad/s, clock rate {options.clock_rate})")
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

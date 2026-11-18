@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pose view</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #171d24; --line: #2a333d; --text: #e6edf3; --muted: #8b98a5;
+    --truth: #3fb950; --est: #f85149; --bound: #6e7b88; --path: #388bfd; --hit: #4b5663;
+    --warn: #f85149; --ok: #3fb950;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f8fa; --panel: #ffffff; --line: #d0d7de; --text: #1f2328; --muted: #656d76;
+      --truth: #1a7f37; --est: #cf222e; --bound: #6e7781; --path: #0969da; --hit: #b6bec8;
+      --warn: #cf222e; --ok: #1a7f37;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px;
+         padding: 12px; height: 100vh; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; height: auto; } }
+  .map, aside { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  .map { position: relative; min-height: 320px; }
+  canvas#map { width: 100%; height: 100%; display: block; border-radius: 8px; }
+  aside { padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+  h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  .status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.live { background: var(--ok); } .dot.stale { background: #d29922; }
+  .dot.down { background: var(--warn); }
+  .legend { display: flex; flex-direction: column; gap: 6px; }
+  .legend span { display: flex; align-items: center; gap: 8px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .big { font-size: 34px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .big small { font-size: 14px; font-weight: 400; color: var(--muted); }
+  .big.alert { color: var(--warn); }
+  dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; }
+  dt { color: var(--muted); } dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+  canvas#chart { width: 100%; height: 110px; display: block; }
+  .controls { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  .controls label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  button { background: var(--bg); color: var(--text); border: 1px solid var(--line);
+           border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; }
+  button:hover { border-color: var(--muted); }
+  .note { color: var(--muted); font-size: 12.5px; }
+  .banner { position: absolute; left: 12px; top: 12px; right: 12px; padding: 8px 12px;
+            border-radius: 6px; background: var(--bg); border: 1px solid var(--line);
+            color: var(--muted); font-size: 13px; display: none; }
+</style>
+</head>
+<body>
+<main>
+  <section class="map">
+    <canvas id="map"></canvas>
+    <div class="banner" id="banner"></div>
+  </section>
+  <aside>
+    <h1>Where the car thinks it is</h1>
+    <div class="status"><span class="dot" id="dot"></span><span id="state">connecting…</span></div>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--truth)"></i>Actual position (simulator)</span>
+      <span><i class="swatch" style="background:var(--est)"></i>Estimated position (localizer)</span>
+    </div>
+    <div>
+      <div class="big" id="err">–<small> m</small></div>
+      <div class="note">position error, estimate vs actual</div>
+    </div>
+    <canvas id="chart"></canvas>
+    <dl>
+      <dt>Yaw error</dt><dd id="yaw">–</dd>
+      <dt>Scan alignment</dt><dd id="align">–</dd>
+      <dt>Speed</dt><dd id="speed">–</dd>
+      <dt>Worst error this run</dt><dd id="worst">–</dd>
+    </dl>
+    <div class="controls">
+      <label><input type="checkbox" id="showHits"> LiDAR map points</label>
+      <label><input type="checkbox" id="showPath" checked> Racing line</label>
+      <button id="clear" type="button">Clear trails</button>
+    </div>
+  </aside>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const canvas = $("map"), ctx = canvas.getContext("2d");
+const chart = $("chart"), cctx = chart.getContext("2d");
+const TRAIL = 700, WINDOW_S = 30;
+let geometry = {left: [], right: [], path: [], hits: [], error_alert_m: 0.5};
+let latest = null, lastMessage = 0, connected = false;
+let trailEst = [], trailTruth = [], errors = [], worst = 0, dirty = true;
+
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function fitCanvas(c) {
+  const r = c.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  if (c.width !== Math.round(r.width * d) || c.height !== Math.round(r.height * d)) {
+    c.width = Math.round(r.width * d); c.height = Math.round(r.height * d); dirty = true;
+  }
+  return {w: r.width, h: r.height, d};
+}
+
+function bounds() {
+  let pts = geometry.left.concat(geometry.right);
+  if (!pts.length) pts = trailEst.concat(trailTruth);
+  if (!pts.length) return null;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const p of pts) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]);
+                         y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
+  return {x0, x1: Math.max(x1, x0 + 1), y0, y1: Math.max(y1, y0 + 1)};
+}
+
+function line(points, tx, ty, close) {
+  if (!points.length) return;
+  ctx.beginPath(); ctx.moveTo(tx(points[0][0]), ty(points[0][1]));
+  for (let i = 1; i < points.length; i++) ctx.lineTo(tx(points[i][0]), ty(points[i][1]));
+  if (close) ctx.closePath();
+  ctx.stroke();
+}
+
+function trail(points, color, tx, ty) {
+  const n = points.length;
+  if (n < 2) return;
+  ctx.lineWidth = 2; ctx.strokeStyle = color;
+  const chunk = 25;
+  for (let s = 0; s < n - 1; s += chunk) {
+    ctx.globalAlpha = 0.15 + 0.85 * (s / n);
+    ctx.beginPath(); ctx.moveTo(tx(points[s][0]), ty(points[s][1]));
+    for (let i = s + 1; i <= Math.min(s + chunk, n - 1); i++) ctx.lineTo(tx(points[i][0]), ty(points[i][1]));
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function car(pose, color, tx, ty, scale, hollow) {
+  const size = Math.max(11, 0.45 * scale), a = -pose[2];
+  const px = tx(pose[0]), py = ty(pose[1]);
+  const pt = (dx, dy) => [px + dx * Math.cos(a) - dy * Math.sin(a), py + dx * Math.sin(a) + dy * Math.cos(a)];
+  const [a1, a2, a3] = [pt(size, 0), pt(-size * 0.7, size * 0.6), pt(-size * 0.7, -size * 0.6)];
+  ctx.beginPath(); ctx.moveTo(...a1); ctx.lineTo(...a2); ctx.lineTo(...a3); ctx.closePath();
+  ctx.lineWidth = 2; ctx.strokeStyle = color;
+  if (hollow) { ctx.stroke(); } else { ctx.fillStyle = color; ctx.globalAlpha = 0.9; ctx.fill(); ctx.globalAlpha = 1; }
+}
+
+function drawMap() {
+  const {w, h, d} = fitCanvas(canvas);
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const b = bounds();
+  if (!b) return;
+  const pad = 28, scale = Math.min((w - 2 * pad) / (b.x1 - b.x0), (h - 2 * pad) / (b.y1 - b.y0));
+  const ox = (w - scale * (b.x1 - b.x0)) / 2, oy = (h - scale * (b.y1 - b.y0)) / 2;
+  const tx = (x) => ox + (x - b.x0) * scale, ty = (y) => h - (oy + (y - b.y0) * scale);
+
+  if ($("showHits").checked) {
+    ctx.fillStyle = css("--hit");
+    for (const p of geometry.hits) ctx.fillRect(tx(p[0]) - 1, ty(p[1]) - 1, 2, 2);
+  }
+  ctx.lineWidth = 2; ctx.strokeStyle = css("--bound");
+  line(geometry.left, tx, ty, true); line(geometry.right, tx, ty, true);
+  if ($("showPath").checked) {
+    ctx.lineWidth = 1; ctx.setLineDash([5, 5]); ctx.strokeStyle = css("--path");
+    line(geometry.path, tx, ty, true); ctx.setLineDash([]);
+  }
+  trail(trailTruth, css("--truth"), tx, ty);
+  trail(trailEst, css("--est"), tx, ty);
+  if (latest) {
+    const alert = latest.err_m !== null && latest.err_m > geometry.error_alert_m;
+    if (latest.truth) {
+      ctx.lineWidth = alert ? 3 : 1.5; ctx.strokeStyle = alert ? css("--warn") : css("--muted");
+      ctx.beginPath(); ctx.moveTo(tx(latest.truth[0]), ty(latest.truth[1]));
+      ctx.lineTo(tx(latest.est[0]), ty(latest.est[1])); ctx.stroke();
+      car(latest.truth, css("--truth"), tx, ty, scale, false);
+    }
+    car(latest.est, css("--est"), tx, ty, scale, true);
+  }
+}
+
+function drawChart() {
+  const {w, h, d} = fitCanvas(chart);
+  cctx.setTransform(d, 0, 0, d, 0, 0); cctx.clearRect(0, 0, w, h);
+  const alert = geometry.error_alert_m;
+  const top = Math.max(alert * 1.5, ...errors.map((e) => e[1]), 0.1);
+  const t1 = errors.length ? errors[errors.length - 1][0] : 0, t0 = t1 - WINDOW_S;
+  const x = (t) => ((t - t0) / WINDOW_S) * (w - 4) + 2, y = (v) => h - 14 - (v / top) * (h - 22);
+  cctx.strokeStyle = css("--line"); cctx.lineWidth = 1;
+  cctx.beginPath(); cctx.moveTo(0, h - 14); cctx.lineTo(w, h - 14); cctx.stroke();
+  cctx.setLineDash([4, 4]); cctx.strokeStyle = css("--warn"); cctx.globalAlpha = 0.6;
+  cctx.beginPath(); cctx.moveTo(0, y(alert)); cctx.lineTo(w, y(alert)); cctx.stroke();
+  cctx.setLineDash([]); cctx.globalAlpha = 1;
+  cctx.fillStyle = css("--muted"); cctx.font = "11px system-ui, sans-serif";
+  cctx.fillText(alert.toFixed(2) + " m alert", 4, y(alert) - 3);
+  cctx.fillText("last " + WINDOW_S + " s", 4, h - 2);
+  cctx.fillText(top.toFixed(2) + " m", w - 44, 11);
+  cctx.strokeStyle = css("--est"); cctx.lineWidth = 1.8; cctx.beginPath();
+  let started = false;
+  for (const [t, e] of errors) {
+    if (t < t0) continue;
+    if (!started) { cctx.moveTo(x(t), y(e)); started = true; } else cctx.lineTo(x(t), y(e));
+  }
+  cctx.stroke();
+}
+
+function hud() {
+  const s = latest, alertM = geometry.error_alert_m;
+  const err = $("err"), banner = $("banner");
+  if (!s) { err.innerHTML = "–<small> m</small>"; return; }
+  if (s.err_m === null) {
+    err.innerHTML = "n/a";
+    banner.style.display = "block";
+    banner.textContent = "No ground truth is arriving, so only the estimate is drawn. With " +
+      "localization.source: ground_truth the estimate is the simulator pose; use source: avlite to compare.";
+  } else {
+    banner.style.display = "none";
+    err.innerHTML = s.err_m.toFixed(3) + "<small> m</small>";
+    err.classList.toggle("alert", s.err_m > alertM);
+  }
+  $("yaw").textContent = s.yaw_err_rad === null ? "–" : (s.yaw_err_rad * 180 / Math.PI).toFixed(1) + "°";
+  $("align").textContent = s.alignment === null ? "–" : Math.round(s.alignment * 100) + "%";
+  $("speed").textContent = s.speed === null ? "–" : s.speed.toFixed(2) + " m/s";
+  $("worst").textContent = worst ? worst.toFixed(3) + " m" : "–";
+}
+
+function status() {
+  const age = (performance.now() - lastMessage) / 1000;
+  const [cls, text] = !connected ? ["down", "disconnected, retrying…"]
+    : !lastMessage ? ["stale", "connected, waiting for the car…"]
+    : age > 1.5 ? ["stale", "no data for " + age.toFixed(0) + " s (is the car driving?)"]
+    : ["live", "live"];
+  $("dot").className = "dot " + cls; $("state").textContent = text;
+}
+
+function clearTrails() { trailEst = []; trailTruth = []; errors = []; worst = 0; latest = null; dirty = true; }
+
+function onSnapshot(s) {
+  latest = s; lastMessage = performance.now();
+  trailEst.push(s.est); if (trailEst.length > TRAIL) trailEst.shift();
+  if (s.truth) { trailTruth.push(s.truth); if (trailTruth.length > TRAIL) trailTruth.shift(); }
+  if (s.err_m !== null) { errors.push([s.t, s.err_m]); worst = Math.max(worst, s.err_m); }
+  while (errors.length && s.t - errors[0][0] > WINDOW_S + 5) errors.shift();
+  dirty = true;
+}
+
+function connect() {
+  const events = new EventSource("events");
+  events.onopen = () => { connected = true; };
+  events.onerror = () => { connected = false; };
+  events.onmessage = (m) => { connected = true; onSnapshot(JSON.parse(m.data)); };
+  events.addEventListener("reset", clearTrails);
+}
+
+function frame() {
+  if (dirty) { drawMap(); drawChart(); hud(); dirty = false; }
+  status(); requestAnimationFrame(frame);
+}
+
+$("clear").onclick = clearTrails;
+$("showHits").onchange = $("showPath").onchange = () => { dirty = true; };
+window.addEventListener("resize", () => { dirty = true; });
+fetch("geometry").then((r) => r.json()).then((g) => { geometry = g; dirty = true; }).catch(() => {});
+connect();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

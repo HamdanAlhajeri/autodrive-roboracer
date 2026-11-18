@@ -71,7 +71,7 @@ try {
         & $cli help | Out-Null
         foreach ($command in @('start', 'stop', 'restart', 'status', 'logs', 'laps', 'record',
                 'response', 'speed', 'sweep', 'map', 'sketch-map', 'sketch-build', 'sketch-test', 'test',
-                'car')) {
+                'live', 'car')) {
             & $cli $command -Help | Out-Null
         }
         Assert ($global:calls.Count -eq 0) 'Help invoked Docker'

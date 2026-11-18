@@ -5,7 +5,12 @@ driving_mode: planned  # Follow the validated map; speed profile includes corner
 # pose. slam runs SLAM Toolbox localization on a saved pose graph with wheel odometry (start
 # the sim_odometry service), as on the real car. Paths are relative to this YAML.
 localization:
-  source: ground_truth
+  source: avlite
+  # AVLite's own LiDAR ICP, started at the car's spawn pose (practice track, world frame) and
+  # aligned to the LiDAR returns recorded in the planned map. The simulator's true pose is then
+  # only a diagnostic, which is what lets the pose view compare estimate and truth.
+  start_pose_world: [0.8107, 3.1583, -1.5708]
+  reference: map_hits
   profile: roboracer/sim_profile.yaml
   slam_params: roboracer/slam_toolbox.yaml
   # For source: slam, from a SLAM mapping replay (roboracer_record replay --mode mapping):
@@ -15,10 +20,16 @@ localization:
   # World pose where the mapping run's odometry started; lets the ground-truth-built race
   # map and the error diagnostic work in the world frame. Omit for a SLAM-built race map.
   # map_origin_world: [x, y, yaw]
-  # source: avlite runs AVLite's own LidarLocalization (ICP against the first scan) with
-  # wheel-odometry speed; no SLAM map needed. It starts at the car's spawn pose:
-  # start_pose_world: [0.8107, 3.1583, -1.5708]   # practice track spawn, world frame
+  # source: avlite runs AVLite's own LidarLocalization with wheel-odometry speed; no SLAM map
+  # needed. reference: first_scan aligns to the first scan instead of the planned map's hits.
+  # source: ground_truth reads the simulator pose directly (the pose view then has nothing to compare).
   # scan_subsample: 4, map_subsample: 4, max_iterations: 10 keep one step near 20 ms.
+# Browser view of the estimated pose next to the simulator's true pose, served at
+# http://localhost:<port> while the stack runs (.\avlite.ps1 live opens it). Read-only.
+visualization:
+  pose_view: true
+  port: 8765
+  error_alert_m: 0.5   # the error turns red beyond this distance
 planning:
   map_path: maps/practice.json  # Relative to this YAML; available under /config in Docker.
   max_velocity_mps: ${speed_mps}

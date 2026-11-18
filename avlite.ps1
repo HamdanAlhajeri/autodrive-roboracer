@@ -17,7 +17,7 @@ param(
     [Parameter(Position = 0)]
     [ValidateSet('help', 'start', 'stop', 'restart', 'status', 'logs', 'laps',
         'record', 'response', 'speed', 'sweep', 'map', 'sketch-map', 'sketch-build',
-        'sketch-test', 'test', 'car')]
+        'sketch-test', 'test', 'live', 'car')]
     [string]$Command = 'help',
     [switch]$Help
 )

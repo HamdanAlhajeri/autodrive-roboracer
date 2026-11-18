@@ -1,0 +1,132 @@
+{
+  "before": [
+    {
+      "duration_s": 38.645542213000226,
+      "driving_s": 0.0,
+      "laps": 0,
+      "crashed": false,
+      "first_contact_s": null,
+      "contacts": 0,
+      "peak_speed": 0.0,
+      "share_over_1mps": null,
+      "realtime_factor": null,
+      "wheel_to_true_speed": null,
+      "estimate_error_at_5s_m": 8.148958396967195,
+      "file": "trial-1.jsonl"
+    },
+    {
+      "duration_s": 37.53829713199957,
+      "driving_s": 0.0,
+      "laps": 0,
+      "crashed": false,
+      "first_contact_s": null,
+      "contacts": 0,
+      "peak_speed": 0.0,
+      "share_over_1mps": null,
+      "realtime_factor": null,
+      "wheel_to_true_speed": null,
+      "estimate_error_at_5s_m": 1.5685115897428314,
+      "file": "trial-2.jsonl"
+    },
+    {
+      "duration_s": 39.941520377000415,
+      "driving_s": 0.0,
+      "laps": 0,
+      "crashed": false,
+      "first_contact_s": null,
+      "contacts": 0,
+      "peak_speed": 0.0,
+      "share_over_1mps": null,
+      "realtime_factor": null,
+      "wheel_to_true_speed": null,
+      "estimate_error_at_5s_m": 5.765618516586716,
+      "file": "trial-3.jsonl"
+    },
+    {
+      "duration_s": 39.95275997899989,
+      "driving_s": 1.7026157816179235,
+      "laps": 1,
+      "crashed": false,
+      "first_contact_s": null,
+      "contacts": 0,
+      "peak_speed": 3.7066,
+      "share_over_1mps": 0.0,
+      "realtime_factor": 0.9374725215046406,
+      "wheel_to_true_speed": 0.5633580528622883,
+      "estimate_error_at_5s_m": 0.9884399507638616,
+      "file": "trial-4.jsonl"
+    },
+    {
+      "duration_s": 37.57672190999983,
+      "driving_s": 0.0,
+      "laps": 0,
+      "crashed": false,
+      "first_contact_s": null,
+      "contacts": 0,
+      "peak_speed": 0.0,
+      "share_over_1mps": null,
+      "realtime_factor": null,
+      "wheel_to_true_speed": null,
+      "estimate_error_at_5s_m": 10.306182264876778,
+      "file": "trial-5.jsonl"
+    },
+    {
+      "duration_s": 39.955198619999464,
+      "driving_s": 0.0,
+      "laps": 0,
+      "crashed": false,
+      "first_contact_s": null,
+      "contacts": 0,
+      "peak_speed": 0.0,
+      "share_over_1mps": null,
+      "realtime_factor": null,
+      "wheel_to_true_speed": null,
+      "estimate_error_at_5s_m": 6.279306475172073,
+      "file": "trial-6.jsonl"
+    }
+  ],
+  "after": [
+    {
+      "duration_s": 37.96476097199957,
+      "driving_s": 0.0,
+      "laps": 0,
+      "crashed": false,
+      "first_contact_s": null,
+      "contacts": 0,
+      "peak_speed": 0.0,
+      "share_over_1mps": null,
+      "realtime_factor": null,
+      "wheel_to_true_speed": null,
+      "estimate_error_at_5s_m": 4.978271715569037,
+      "file": "trial-1.jsonl"
+    },
+    {
+      "duration_s": 39.99710624799991,
+      "driving_s": 0.02400786689555817,
+      "laps": 0,
+      "crashed": false,
+      "first_contact_s": null,
+      "contacts": 0,
+      "peak_speed": 0.5141,
+      "share_over_1mps": 0.0,
+      "realtime_factor": null,
+      "wheel_to_true_speed": null,
+      "estimate_error_at_5s_m": 0.09045233578233643,
+      "file": "trial-2.jsonl"
+    },
+    {
+      "duration_s": 39.972416571000394,
+      "driving_s": 0.0,
+      "laps": 0,
+      "crashed": false,
+      "first_contact_s": null,
+      "contacts": 0,
+      "peak_speed": 0.2073,
+      "share_over_1mps": null,
+      "realtime_factor": null,
+      "wheel_to_true_speed": null,
+      "estimate_error_at_5s_m": 0.1218956875436878,
+      "file": "trial-3.jsonl"
+    }
+  ]
+}

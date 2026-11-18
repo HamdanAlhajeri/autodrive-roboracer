@@ -41,6 +41,7 @@ function Get-AvliteCommands {
         'sketch-build' = @{ Script = 'sketch-build.ps1'; Preset = @{}; Description = 'Create/build the sketch track in an existing Unity source checkout' }
         'sketch-test' = @{ Script = 'sketch-test.ps1'; Preset = @{}; Description = 'Run native sketch scene checks; no autonomous laps' }
         test = @{ Script = 'test.ps1'; Preset = @{}; Description = 'Run Windows command/workflow tests with Docker mocked' }
+        live = @{ Script = 'live.ps1'; Preset = @{}; Description = 'Open the live view of estimated vs true car position' }
         car = @{ Script = 'car.ps1'; Preset = @{}; Description = 'Jetson car over SSH: status, map-start, race-start or stop' }
     }
 }

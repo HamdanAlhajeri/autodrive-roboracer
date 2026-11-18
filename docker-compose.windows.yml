@@ -8,6 +8,9 @@ services:
     network_mode: !reset null
     ports:
       - "127.0.0.1:4567:4567"
+      # Pose view (visualization.pose_view): estimated vs true pose, served by the avlite service,
+      # which shares this network. Loopback only.
+      - "127.0.0.1:8765:8765"
 
   actuator:
     network_mode: service:bridge

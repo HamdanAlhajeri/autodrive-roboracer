@@ -1,4 +1,4 @@
-"""AVLite plugin: the simulator bridge and the controllers.
+"""AVLite plugin: the simulator bridge, the controllers and the pose view task.
 
 Members load on first access, so the Jetson hardware process can import the controllers
 without importing the simulator bridge or its ROS topics. Importing a member registers it
@@ -7,7 +7,8 @@ with AVLite as before.
 
 from importlib import import_module
 
-_MEMBERS = {"AutoDRIVEWorldBridge": ".bridge", "AutoDRIVEFollowTheGap": ".controller"}
+_MEMBERS = {"AutoDRIVEWorldBridge": ".bridge", "AutoDRIVEFollowTheGap": ".controller",
+            "PoseComparisonView": ".pose_view"}
 
 __all__ = list(_MEMBERS)
 

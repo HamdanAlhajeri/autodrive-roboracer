@@ -102,6 +102,7 @@ old scripts, or the [documentation index](docs/README.md) for all guides.
 | Record three laps, stopping on an incident or timeout | `.\avlite.ps1 laps -Laps 3 -Label controller-test` |
 | Record an already running car without stopping it | `.\avlite.ps1 record -Seconds 120 -Label corner-test` |
 | Inspect the configured speed profile without driving | `.\avlite.ps1 speed` |
+| Watch estimated vs true car position live in a browser | `.\avlite.ps1 live` |
 | Run the speed-tuning test matrix and tabulate every run | `.\avlite.ps1 sweep` (`-DryRun` plans only) |
 | Measure low-speed braking response | `.\avlite.ps1 response -TargetSpeedMps 2.5 -Trials 3` |
 | Run Windows workflow tests with Docker mocked | `.\avlite.ps1 test` |
