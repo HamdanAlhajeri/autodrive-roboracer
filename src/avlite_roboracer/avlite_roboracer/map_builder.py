@@ -31,6 +31,9 @@ from avlite_autodrive.race_map import ClosedPath, validate_map, xy_array
 from .occupancy import OccupancyGrid
 
 
+START_AREA_M = 2.0  # within this of the start counts as being back at the start
+
+
 class MapRejected(ValueError):
     """The map cannot support racing; the car must remain stopped and remap."""
 
@@ -44,23 +47,36 @@ class BoundarySettings:
     max_route_closure_m: float = 1.0
     min_route_wall_clearance_m: float = 0.1
     hit_corridor_margin_m: float = 0.2
+    # Wall-offset smoothing (in route samples) tried in order until both boundary rings are
+    # simple. Map drift between laps leaves doubled wall segments whose offset lines cross
+    # themselves at the first value; a smoother offset removes the loops.
+    smoothing_sigmas: tuple = (1.5, 3.0, 6.0, 10.0)
 
 
 def lap_route(nodes, start_xy=None):
     """Order pose-graph node positions and trim them to one lap.
 
     nodes are [id, x, y] in increasing id order (time order). The lap starts at the first
-    node and ends at the last node before the route returns closest to that start after
-    leaving it. Raises MapRejected if the route never comes back.
+    node and ends at the closest node of the FIRST return to the start after leaving it, so
+    a multi-lap mapping run (mapping.laps) still gives exactly one lap. Raises MapRejected
+    if the route never leaves the start area; a route that never comes back is rejected
+    later, as one that does not close.
     """
     points = xy_array([[n[1], n[2]] for n in sorted(nodes)], "pose-graph route", minimum=10)
     start = points[0] if start_xy is None else np.asarray(start_xy, dtype=float)
     distance = np.linalg.norm(points - start, axis=1)
-    far = np.flatnonzero(distance > 2.0)
+    far = np.flatnonzero(distance > START_AREA_M)
     if not len(far):
         raise MapRejected("Route never left the start area")
     tail = np.arange(far[0], len(points))
-    end = tail[np.argmin(distance[tail])]
+    returned = tail[distance[tail] <= START_AREA_M]
+    if not len(returned):
+        end = tail[np.argmin(distance[tail])]  # never came back: reported as not closing
+    else:
+        first = returned[0]  # stay within this first pass; later laps would double the route
+        left = np.flatnonzero(distance[first:] > START_AREA_M)
+        passage = np.arange(first, first + (left[0] if len(left) else len(points) - first))
+        end = passage[np.argmin(distance[passage])]
     return points[:end + 1]
 
 
@@ -132,6 +148,27 @@ def _check_ambiguity(widths, route, side, settings):
     return filtered
 
 
+def _rings_are_simple(bounds):
+    from shapely.geometry import Polygon
+    return all(Polygon(b).is_valid and Polygon(b).area > 0 for b in bounds)
+
+
+def offset_boundaries(points, normals, widths, settings):
+    """Left and right boundary rings and the smoothing used, from wall offsets along normals.
+
+    Try each smoothing in settings.smoothing_sigmas and keep the lightest one whose rings are
+    both simple (non-crossing). Raise MapRejected when even the smoothest still crosses.
+    """
+    for sigma in settings.smoothing_sigmas:
+        bounds = [gaussian_filter1d(points + sign * widths[side][:, None] * normals, sigma,
+                                    axis=0, mode="wrap")
+                  for sign, side in ((1, "left"), (-1, "right"))]
+        if _rings_are_simple(bounds):
+            return bounds, sigma
+    raise MapRejected("Track boundaries cross themselves even after smoothing the wall offsets "
+                      f"up to sigma {settings.smoothing_sigmas[-1]}; remap with a cleaner lap")
+
+
 def build_hardware_map(grid, nodes, vehicle_radius_m, tracking_allowance_m,
                        settings=None, start_xy=None):
     """Return a validated RaceMap dict in the grid's frame, or raise MapRejected.
@@ -146,13 +183,12 @@ def build_hardware_map(grid, nodes, vehicle_radius_m, tracking_allowance_m,
     tangents = np.roll(route.points, -1, axis=0) - np.roll(route.points, 1, axis=0)
     tangents /= np.linalg.norm(tangents, axis=1)[:, None]
     normals = np.column_stack((-tangents[:, 1], tangents[:, 0]))
-    bounds, widths = [], {}
+    widths = {}
     for sign, side in ((1, "left"), (-1, "right")):
         raw = _widths(grid, route, normals, sign, settings)
-        filled = _check_ambiguity(_fill_gaps(raw, route, side, settings), route, side, settings)
-        widths[side] = filled
-        bounds.append(gaussian_filter1d(route.points + sign * filled[:, None] * normals,
-                                        1.5, axis=0, mode="wrap"))
+        widths[side] = _check_ambiguity(_fill_gaps(raw, route, side, settings), route, side,
+                                        settings)
+    bounds, sigma = offset_boundaries(route.points, normals, widths, settings)
     total = widths["left"] + widths["right"]
     required = 2 * (vehicle_radius_m + tracking_allowance_m)
     narrow = np.flatnonzero(total <= required)
@@ -175,6 +211,7 @@ def build_hardware_map(grid, nodes, vehicle_radius_m, tracking_allowance_m,
         "spacing_m": settings.spacing_m, "recorded_path": route.points.tolist(),
         "observed_hits": hits.tolist(),
         "track_width_m": {"min": float(total.min()), "max": float(total.max())},
+        "boundary_smoothing_sigma": sigma,
     }
     try:
         validate_map(result, vehicle_radius_m, tracking_allowance_m, frame_id=grid.frame_id)

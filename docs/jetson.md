@@ -113,10 +113,31 @@ flowchart LR
 | `command.py`, `actuator_node.py` | Single command owner, command expiry, hardware conversion, manual override. |
 | `lap_detector.py` | Mapping-lap completion without simulator counters. |
 | `map_builder.py` | RaceMap from the finalized occupancy grid and the corrected pose-graph route. |
+| `icp_pose.py` | AVLite ICP pose against the saved map, with wheel-odometry prediction (no ROS). |
 | `localization.py`, `readiness.py` | Pose freshness, uncertainty, scan alignment, motion consistency; READY gates. |
 | `supervisor.py`, `runtime.py`, `cli.py` | State machine, ROS runtime, operator commands. |
 
-Frames follow REP 105: SLAM Toolbox is the only `map → odom` publisher, the
+### Localizer: AVLite ICP (default) or SLAM Toolbox
+
+`config/roboracer/race.yaml` selects `localization.source`. SLAM Toolbox always builds the
+map during the mapping lap. After that:
+
+- **`icp` (default):** AVLite's own ICP aligns every scan to the occupied cells of the saved
+  map, starting from the previous pose moved by the wheel-odometry motion. It is seeded
+  where the mapping lap ended. Health comes from scan alignment and map-versus-odometry
+  motion, because ICP reports no covariance.
+- **`slam`:** SLAM Toolbox localization on the saved pose graph, as before.
+
+Why ICP: in the simulator, SLAM Toolbox localization settled about 1 m behind the true
+position along the corridor and held it while its own checks stayed green (alignment 95%).
+AVLite ICP finished 3 clean laps at 2.5 m/s with about 10 cm typical error, because the
+odometry prediction pulls back its short along-track bursts. Evidence and charts:
+[sim-localization-20261117](validation/sim-localization-20261117/README.md). A tight
+`max_correspondence_m` (0.3) lost lock there; keep the 1.0 m default until measured on the car.
+Neither is validated on the real car yet: tune the thresholds from recorded laps.
+
+Frames follow REP 105: with SLAM Toolbox the only `map → odom` publisher (ICP publishes no
+transform and the runtime uses its pose directly), the
 motor driver publishes `odom → base_link`, and a static publisher provides
 `base_link → laser`. `base_link` is the rear-axle centre that AVLite tracks.
 Shared map code now takes the map's declared frame (`planning.frame_id`); the

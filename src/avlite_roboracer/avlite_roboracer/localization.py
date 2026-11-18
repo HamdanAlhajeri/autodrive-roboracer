@@ -87,6 +87,9 @@ class LocalizationMonitor:
     last_pose_time: float = None
     last: dict = field(default_factory=dict)
     _previous: tuple = None
+    # SLAM Toolbox reports a covariance; AVLite ICP does not, and relies on scan alignment
+    # and map-versus-odometry motion instead.
+    covariance_required: bool = True
 
     def reset(self):
         self.reasons = ["no localization estimate"]
@@ -116,7 +119,8 @@ class LocalizationMonitor:
         cov = [c if c is not None and math.isfinite(c) and c >= 0 else None
                for c in (covariance or [])]
         if len(cov) != 3 or any(c is None for c in cov):
-            reasons.append("pose covariance unavailable")
+            if self.covariance_required:
+                reasons.append("pose covariance unavailable")
             stddev = (None, None)
         else:
             stddev = (math.sqrt(max(cov[0], 0) + max(cov[1], 0)), math.sqrt(max(cov[2], 0)))

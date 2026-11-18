@@ -44,10 +44,37 @@ def test_shared_validation_keeps_world_default_and_accepts_declared_frame():
         validate_map(unlabeled, 0.15, 0.05, frame_id="map")
 
 
+def test_spiky_wall_offsets_are_smoothed_until_the_rings_are_simple():
+    # A run of bad width samples (a doubled wall after drift) throws a boundary across the track.
+    from avlite_roboracer.map_builder import BoundarySettings, offset_boundaries
+    angle = np.linspace(0, 2 * np.pi, 360, endpoint=False)
+    points = 3.0 * np.column_stack((np.cos(angle), np.sin(angle)))
+    normals = -np.column_stack((np.cos(angle), np.sin(angle)))  # left of a CCW circle = inward
+    widths = {"left": np.full(360, 0.8), "right": np.full(360, 0.8)}
+    widths["left"][96:105] = 3.4  # a doubled wall segment reaching across the centre
+    bounds, sigma = offset_boundaries(points, normals, widths, BoundarySettings())
+    assert sigma > BoundarySettings().smoothing_sigmas[0]
+    clean, base = offset_boundaries(points, normals, {k: np.full(360, 0.8) for k in widths},
+                                    BoundarySettings())
+    assert base == BoundarySettings().smoothing_sigmas[0]
+
+
 def test_route_is_trimmed_to_one_lap():
     route = lap_route(circle_nodes(laps=1.3))
     assert np.linalg.norm(route[-1] - route[0]) < 0.1
     assert len(route) < 300 * 1.05
+
+
+def test_multi_lap_mapping_run_is_trimmed_to_the_first_lap():
+    # mapping.laps: 3 gives about three laps of nodes; the closest return to the start can be
+    # on any of them, and the route must still be exactly one lap.
+    nodes = circle_nodes(laps=3.2)
+    for jitter in (0.0, 0.03, -0.03):  # which later pass is "closest" varies with drift
+        shifted = [[n[0], n[1] + jitter * (n[0] // 300), n[2]] for n in nodes]
+        route = lap_route(shifted)
+        assert len(route) < 300 * 1.1
+        assert np.linalg.norm(route[-1] - route[0]) < 0.2
+    assert build(nodes=nodes)["track_width_m"]["min"] > 0
 
 
 def test_route_that_never_returns_is_rejected():

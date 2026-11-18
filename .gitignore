@@ -57,3 +57,16 @@ Desktop.ini
 
 # Keep source, YAML configs, scripts and curated docs/validation/ results in Git.
 # Raw recordings and generated plots belong under log/recordings/.
+
+# Harness run output
+/tools/jazzy-sim/closed*/
+/tools/jazzy-sim/out/
+
+# Local-only reports, not pushed
+/local-reports/
+/tools/jazzy-sim/.run_inside.sh
+/tools/jazzy-sim/final-*/
+/tools/jazzy-sim/stress-*/
+/tools/jazzy-sim/mid-*/
+/tools/jazzy-sim/tune-*/
+/tools/jazzy-sim/tuned-*/

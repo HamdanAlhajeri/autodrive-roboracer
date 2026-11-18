@@ -48,19 +48,23 @@ class LapSettings:
 def scan_similarity(a, b, tolerance_m):
     """Fraction of beams whose ranges agree within tolerance (both returns valid).
 
-    Scans must have the same beam count. Beams without a return in both scans are ignored;
-    a return in one scan and not the other counts as a disagreement.
+    Scans must have the same beam count. Beams without a return in both scans are ignored.
+    A return in only one scan counts as half a disagreement: dark or shiny surfaces drop beams
+    at random, and with 25 % dropout in each scan a full penalty capped the score near 0.6 and
+    the finish line was never confirmed. A different place still scores low, because its
+    beams that do return disagree.
     """
     a = np.array([np.nan if r is None else r for r in a], dtype=float)
     b = np.array([np.nan if r is None else r for r in b], dtype=float)
     if a.shape != b.shape or not len(a):
         return 0.0
     va, vb = np.isfinite(a), np.isfinite(b)
-    considered = va | vb
-    if not considered.any():
+    both = va & vb
+    one_sided = (va ^ vb).sum()
+    if not both.any() and not one_sided:
         return 0.0
-    agree = va & vb & (np.abs(np.where(va & vb, a - b, 0.0)) <= tolerance_m)
-    return float(agree.sum() / considered.sum())
+    agree = both & (np.abs(np.where(both, a - b, 0.0)) <= tolerance_m)
+    return float(agree.sum() / (both.sum() + 0.5 * one_sided))
 
 
 class LapDetector:

@@ -38,6 +38,15 @@ c30_control:
   c35_valpha: 1.0
   c35_vbeta: 0.0
   c35_vgamma: 0.0
+# Where the map-frame pose comes from after the mapping lap. icp: AVLite's own ICP against the
+# saved map with wheel-odometry prediction (it finished clean simulator laps). slam: SLAM Toolbox
+# localization, which slid about 1 m along the corridor in the simulator and stayed wrong.
+localization:
+  source: icp
+  scan_subsample: 4          # keep every 4th real LiDAR hit
+  max_iterations: 10
+  max_correspondence_m: 1.0  # a tight value (0.3) lost lock in the simulator
+  alignment_tolerance_m: 0.10
 # Autonomous mapping: Follow the Gap drives this many slow laps (at limits.mapping_speed_mps
 # from hardware.yaml) while SLAM Toolbox maps, then stops and finalizes. Follow the Gap,
 # not Pure Pursuit, because there is no path to pursue until the map exists. Extra laps

@@ -37,7 +37,9 @@ def centreline():
     n = 600
     s = np.linspace(0, line.length, n, endpoint=False)
     xy = np.array([line.interpolate(d).coords[0] for d in s])
-    k = 25
+    # Smoothing window: 25 left a 0.70 m turn, tighter than the car's 0.78 m minimum radius,
+    # and Follow the Gap stalled there. 55 gives a 1.4 m tightest turn.
+    k = 55
     kernel = np.ones(k) / k
     pad = np.vstack([xy[-k:], xy, xy[:k]])
     smooth = np.column_stack([np.convolve(pad[:, i], kernel, "same") for i in (0, 1)])
@@ -152,8 +154,8 @@ class Car(Node):
                                y + self.v * math.sin(yaw) * self.dt,
                                yaw + w * self.dt])
         self.travel += abs(self.v) * self.dt
-        # Wheel odometry: 2 % speed scale error and a small yaw-rate bias.
-        vo, wo = self.v * 1.02, w + 0.004
+        # Wheel odometry: a speed scale error and a yaw-rate bias (defaults 2 % and 0.004 rad/s).
+        vo, wo = self.v * self.args.odom_scale, w + self.args.yaw_bias
         ox, oy, oyaw = self.odom
         self.odom = np.array([ox + vo * math.cos(oyaw) * self.dt,
                               oy + vo * math.sin(oyaw) * self.dt, oyaw + wo * self.dt])
@@ -185,7 +187,9 @@ class Car(Node):
             u = ((x1 - lx) * dy - (y1 - ly) * dx) / den
         t = np.where((den != 0) & (t > 0) & (u >= 0) & (u <= 1), t, np.inf)
         r = t.min(axis=1)
-        r = r + self.rng.normal(0, 0.01, r.shape)
+        r = r + self.rng.normal(0, self.args.scan_noise, r.shape)
+        if self.args.dropout:  # dark or shiny surfaces return nothing
+            r[self.rng.random(r.shape) < self.args.dropout] = np.inf
         r[(r > 10.0) | ~np.isfinite(r)] = np.inf
         msg = LaserScan()
         msg.header.stamp = self.stamp()
@@ -230,6 +234,11 @@ def main():
     p.add_argument("--truth")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--joy-button", type=int, help="Publish /joy holding this button")
+    # Stress options: how bad the sensors are. Defaults match the nominal harness runs.
+    p.add_argument("--odom-scale", type=float, default=1.02, help="wheel odometry speed scale")
+    p.add_argument("--yaw-bias", type=float, default=0.004, help="odometry yaw-rate bias, rad/s")
+    p.add_argument("--scan-noise", type=float, default=0.01, help="LiDAR range noise sigma, m")
+    p.add_argument("--dropout", type=float, default=0.0, help="share of beams that return nothing")
     args = p.parse_args()
     rclpy.init()
     car = Car(args)

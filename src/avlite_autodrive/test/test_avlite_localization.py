@@ -91,3 +91,44 @@ def test_avlite_icp_tracks_the_car_from_the_spawn_pose():
     localizer.reset()  # simulator reset: back to the spawn pose with a fresh map
     assert (ego.x, ego.y, ego.theta) == pytest.approx(SPAWN)
     assert localizer._map is None
+
+
+def drive(localizer, poses):
+    ego = localizer.perception_model.ego_vehicle
+    for pose in poses:
+        localizer.localize(sensors=scan_from(pose))
+    return ego
+
+
+def test_prebuilt_map_keeps_the_estimate_on_the_track_instead_of_the_first_scan():
+    # The reference is the real walls, so the pose is correct from the first scan and
+    # does not drift back toward where the car started.
+    settings = avlite_localization_config(block(reference="map_hits"))
+    assert settings.reference == "map_hits"
+    pm = PerceptionModel(ego_vehicle=EgoState(x=0, y=0))
+    localizer = AutoDRIVELidarLocalization(pm, settings, lambda: 1.0, reference_points=walls())
+    path = [(2.0, 1.0 + 0.05 * i, math.pi / 2) for i in range(60)]
+    ego = drive(localizer, path)
+    assert math.hypot(ego.x - path[-1][0], ego.y - path[-1][1]) < 0.05
+    assert localizer.alignment is not None and localizer.alignment > 0.9
+    assert localizer.hits > 0
+
+
+def test_prebuilt_map_survives_a_reset_and_reports_poor_alignment_off_the_map():
+    settings = avlite_localization_config(block(reference="map_hits"))
+    pm = PerceptionModel(ego_vehicle=EgoState(x=0, y=0))
+    localizer = AutoDRIVELidarLocalization(pm, settings, lambda: 1.0, reference_points=walls())
+    drive(localizer, [(2.0, 2.0, math.pi / 2)] * 5)
+    localizer.reset()
+    assert (pm.ego_vehicle.x, pm.ego_vehicle.y) == SPAWN[:2]
+    assert localizer._map is not None  # seeded straight from the reference, no first scan needed
+    wrong = np.array(walls()) + [5.0, 0.0]  # a reference that does not match what the car sees
+    other = AutoDRIVELidarLocalization(PerceptionModel(ego_vehicle=EgoState(x=0, y=0)), settings,
+                                       lambda: 1.0, reference_points=wrong)
+    drive(other, [SPAWN] * 3)
+    assert other.alignment < 0.5
+
+
+def test_unknown_reference_is_rejected():
+    with pytest.raises(ValueError, match="reference"):
+        avlite_localization_config(block(reference="nonsense"))

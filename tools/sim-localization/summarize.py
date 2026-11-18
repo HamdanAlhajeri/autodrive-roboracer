@@ -81,6 +81,11 @@ def main(out):
                      f"{r.get('localization_ok_fraction', '-')} | {error} |")
     (out / "summary.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
+    # One analysis file per run that was driven: where it went wrong and what to try.
+    import analyze
+    for label in ("mapping", "slam", "avlite", "baseline"):
+        if (out / f"{label}-diagnostics.txt").exists():
+            analyze.main(out, label)
 
 
 if __name__ == "__main__":

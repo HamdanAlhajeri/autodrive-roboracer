@@ -57,7 +57,7 @@ def race_failures(profile, scan_age, odom_age, actuator, localization_failures,
     failures += sensor_failures(scan_age, odom_age, profile.get("timing.sensor_timeout_s"))
     failures += actuator_failures(actuator, now, 2 * profile.get("timing.command_timeout_s"))
     if localization_processes != 1:
-        failures.append(f"expected exactly one localization process publishing map->odom, "
+        failures.append(f"expected exactly one localization source (AVLite ICP or SLAM Toolbox), "
                         f"found {localization_processes}")
     failures += list(localization_failures)
     if not plan_valid:

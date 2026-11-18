@@ -94,9 +94,15 @@ def main():
     localizer = None
     if stack_localization is not None:
         # AVLite's own ICP owns the pose; ground truth is read only for diagnostics.
-        localizer = AutoDRIVELidarLocalization(pm, stack_localization, world.wheel_speed)
-        logging.info("Localization: AVLite LidarLocalization (ICP) from spawn pose %s",
-                     stack_localization.start_pose_world)
+        reference = (map_hit_points(config, args.config)
+                     if stack_localization.reference == "map_hits" else None)
+        localizer = AutoDRIVELidarLocalization(pm, stack_localization, world.wheel_speed,
+                                               odometry_pose=world.wheel_pose,
+                                               reference_points=reference)
+        logging.info("Localization: AVLite LidarLocalization (ICP) from spawn pose %s, "
+                     "reference %s%s, wheel-odometry prediction on",
+                     stack_localization.start_pose_world, stack_localization.reference,
+                     "" if reference is None else f" ({len(reference)} map points)")
     if localization is not None:
         # The bridge withholds commands until SLAM reports a healthy, fresh pose.
         world.pose_source.start()
@@ -171,7 +177,7 @@ def main():
                 work_time = time.monotonic() - start
                 world.publish_diagnostics({
                     **controller.diagnostics,
-                    **(stack_localization_diagnostics(pm, world) if localizer else {}),
+                    **(stack_localization_diagnostics(pm, world, localizer) if localizer else {}),
                     "controller_loop_dt_s": loop_dt,
                     "controller_step_time_s": work_time,
                     "controller_overrun": work_time > 0.05 or loop_dt > 0.075,
@@ -182,15 +188,34 @@ def main():
         world.close()
 
 
-def stack_localization_diagnostics(pm, world):
+def map_hit_points(config, config_path):
+    """World-frame LiDAR returns recorded in the planned map, as the ICP reference."""
+    import json
+    from pathlib import Path
+    path = Path(config_path).resolve().parent / config["planning"]["map_path"]
+    hits = json.loads(path.read_text(encoding="utf-8")).get("observed_hits")
+    if not hits:
+        raise ValueError(f"{path} has no observed_hits to use as a localization reference")
+    return hits
+
+
+def stack_localization_diagnostics(pm, world, localizer=None):
     """AVLite pose error against simulator truth (diagnostic only; never drives the car)."""
     truth, ego = world.true_pose(), pm.ego_vehicle
     if truth is None:
         return {}
     yaw = math.atan2(math.sin(ego.theta - truth[2]), math.cos(ego.theta - truth[2]))
-    return {"localization_ok": 1.0,
-            "localization_error_m": math.hypot(ego.x - truth[0], ego.y - truth[1]),
-            "localization_yaw_error_rad": abs(yaw)}
+    values = {"localization_ok": 1.0,
+              "localization_error_m": math.hypot(ego.x - truth[0], ego.y - truth[1]),
+              "localization_yaw_error_rad": abs(yaw),
+              "localization_x_error_m": ego.x - truth[0],
+              "localization_y_error_m": ego.y - truth[1],
+              "estimate_x_m": ego.x, "estimate_y_m": ego.y,
+              "truth_x_m": truth[0], "truth_y_m": truth[1]}
+    if localizer is not None and localizer.alignment is not None:
+        values["localization_alignment"] = localizer.alignment
+        values["localization_hits"] = float(localizer.hits)
+    return values
 
 
 if __name__ == "__main__":

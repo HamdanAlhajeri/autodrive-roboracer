@@ -75,6 +75,7 @@ class AutoDRIVEWorldBridge(WorldBridge):
             Odometry, PREFIX + "/odom", self.on_odom, qos_profile_sensor_data
         )
         self.node.create_subscription(Bool, "/autodrive/reset_command", self.on_reset, 1)
+        self.wheel_pose_value = None  # odometry-frame pose for the localizer's motion prediction
         self.truth = None  # world (x, y, yaw); only for the localization error diagnostic
         self.pose_source = None
         self.truth_only = bool(stack_localization)
@@ -161,6 +162,12 @@ class AutoDRIVEWorldBridge(WorldBridge):
             self.ego_state.theta, self.ego_state.velocity = theta, velocity
             self.odom_time = now
 
+    def wheel_pose(self):
+        """Latest wheel-odometry pose (x, y, yaw) in the odometry frame, or None when stale."""
+        with self.lock:
+            fresh = self.odom_time > time.monotonic() - 0.5
+            return self.wheel_pose_value if fresh else None
+
     def wheel_speed(self):
         """Latest wheel-odometry speed (m/s), or None when it is stale."""
         with self.lock:
@@ -175,7 +182,12 @@ class AutoDRIVEWorldBridge(WorldBridge):
     def on_wheel_odom(self, msg):
         """Take forward speed and odometry freshness from wheel odometry (SLAM/AVLite mode)."""
         speed = msg.twist.twist.linear.x
+        try:
+            pose = odom_state(msg)[:3]
+        except ValueError:
+            pose = None
         with self.lock:
+            self.wheel_pose_value = pose
             if math.isfinite(speed):
                 self.ego_state.velocity = speed
                 self.odom_time = time.monotonic()

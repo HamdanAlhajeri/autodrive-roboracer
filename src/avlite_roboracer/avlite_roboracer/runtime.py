@@ -33,6 +33,7 @@ from .lap_detector import LapDetector, LapSettings
 from .localization import (
     LocalizationMonitor, LocalizationThresholds, scan_alignment, scan_points,
 )
+from .icp_pose import IcpPose, icp_settings, localization_source
 from .map_builder import build_hardware_map
 from .occupancy import OccupancyGrid
 from .profile import HardwareProfile
@@ -81,6 +82,13 @@ class Runtime:
         # Validate now so a bad lap count fails at startup, not at map-start.
         mapping = self.race_config.get("mapping") or {}
         self.lap_settings = LapSettings(laps=mapping.get("laps", 1))
+        # icp: AVLite ICP on the saved map owns the map-frame pose after the mapping lap.
+        # slam: SLAM Toolbox localization does, as before.
+        self.localization_source = localization_source(self.race_config)
+        self.icp_settings = icp_settings(self.race_config)
+        self.icp = None
+        self.icp_trace = None
+        self.icp_trace_name = None
         self.slam_params = Path(slam_params)
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -100,6 +108,7 @@ class Runtime:
         self.map_msg = None
         self.actuator = None
         self.slam_nodes = 0
+        self.slam_stopped_at = -math.inf
         self.last_graph_check = -math.inf
 
         self.slam = SlamProcess(self.data_dir / "logs")
@@ -109,6 +118,7 @@ class Runtime:
         self.lap_started = False
         self.stopping_after_lap = False
         self.stopped_since = None
+        self._pose_seen = {}  # frame -> (latest transform stamp, monotonic time it first arrived)
         self.mapper = None
         self.racer = None
         self.prepared = None
@@ -119,7 +129,9 @@ class Runtime:
         self.finalize_step = None
         self.pose_invalid_since = None
         try:
-            self.monitor = LocalizationMonitor(LocalizationThresholds.from_profile(profile))
+            self.monitor = LocalizationMonitor(
+                LocalizationThresholds.from_profile(profile),
+                covariance_required=self.localization_source == "slam")
         except ValueError as exc:
             self.monitor = None
             node.get_logger().warning(f"{exc}; autonomy disabled until measured")
@@ -229,6 +241,9 @@ class Runtime:
 
     def pose(self, target, stamp=None):
         """Return base_link in target ('map' or 'odom') as (x, y, yaw, age_s), or None."""
+        if target == "map" and self.icp is not None:
+            pose = self.icp.pose  # ICP owns the map frame once finalization has seeded it
+            return None if pose is None else (*pose, self.icp.age(time.monotonic()))
         import rclpy.time
         from .geometry import yaw_from_quaternion
         try:
@@ -238,16 +253,38 @@ class Runtime:
             return None
         q, p = t.transform.rotation, t.transform.translation
         age = (self.node.get_clock().now() - rclpy.time.Time.from_msg(t.header.stamp)).nanoseconds
-        pose = p.x, p.y, yaw_from_quaternion(q.x, q.y, q.z, q.w), age * 1e-9
+        age_s = age * 1e-9
+        if stamp is None:
+            # Latest pose: freshness is the monotonic time since a new transform arrived. A
+            # wall-clock step (NTP, a VM clock correction) or SLAM Toolbox stamping map -> odom
+            # slightly ahead would otherwise read as a negative or huge age and stop the car.
+            stamp_ns = rclpy.time.Time.from_msg(t.header.stamp).nanoseconds
+            seen = self._pose_seen.get(target)
+            if seen is None or seen[0] != stamp_ns:
+                seen = self._pose_seen[target] = (stamp_ns, time.monotonic())
+            age_s = time.monotonic() - seen[1]
+        pose = p.x, p.y, yaw_from_quaternion(q.x, q.y, q.z, q.w), age_s
         return pose if all(math.isfinite(v) for v in pose) else None
 
+    def stop_slam(self):
+        """Stop our SLAM process and remember when, so its lingering graph entry is ours."""
+        self.slam.stop()
+        self.slam_stopped_at = time.monotonic()
+
     def foreign_slam_nodes(self):
-        """slam_toolbox nodes in the ROS graph that this runtime did not start."""
-        return max(0, self.slam_nodes - (1 if self.slam.running else 0))
+        """slam_toolbox nodes in the ROS graph that this runtime did not start.
+
+        A node we just stopped stays in the graph for a few seconds until DDS notices it is
+        gone; counting it made READY fail with "found 2" right after ICP started.
+        """
+        lingering = 1 if (not self.slam.running
+                          and time.monotonic() - self.slam_stopped_at < 15.0) else 0
+        return max(0, self.slam_nodes - (1 if self.slam.running else lingering))
 
     def localization_processes(self):
         """Processes that could publish map -> odom; READY needs exactly our one."""
-        own = 1 if self.slam.running and self.slam.mode == "localization" else 0
+        own = 1 if (self.slam.running and self.slam.mode == "localization"
+                    or self.icp is not None) else 0
         return own + self.foreign_slam_nodes() if own else 0
 
     def race_readiness(self, now):
@@ -275,6 +312,9 @@ class Runtime:
             "localization": self.monitor.snapshot(now) if self.monitor else None,
             "mapping_lap": self.lap.summary() if self.lap_started else None,
             "finalize_step": self.finalize_step,
+            "localizer": self.localization_source,
+            "icp_alignment": self.icp.alignment if self.icp is not None else None,
+            "icp_recoveries": self.icp.recoveries if self.icp is not None else None,
             "slam": {"mode": self.slam.mode, "running": self.slam.running,
                      "slam_toolbox_nodes": self.slam_nodes},
             "actuator": self.actuator[1] if self.actuator else None,
@@ -330,12 +370,46 @@ class Runtime:
         msg.drive.speed = out.speed_mps
         self.command_pub.publish(msg)
 
+    def log_icp(self, stamp_s, map_pose):
+        """Append one map-frame pose to icp_trace.csv (racing) or slam_trace.csv (mapping).
+
+        Compare it with the true path after a test lap. Logging must never stop the car.
+        """
+        if map_pose is None or self.session_dir is None:
+            return
+        try:
+            name = "icp_trace.csv" if self.icp is not None else "slam_trace.csv"
+            if self.icp_trace is not None and self.icp_trace_name != name:
+                self.icp_trace.close()  # mapping ended and ICP took over: start the racing file
+                self.icp_trace = None
+            if self.icp_trace is None:
+                self.icp_trace = open(self.session_dir / name, "a", buffering=1)
+                self.icp_trace_name = name
+                self.icp_trace.write("stamp_s,x,y,yaw,alignment,recoveries\n")
+            alignment = self.icp.alignment if self.icp is not None else None
+            recoveries = self.icp.recoveries if self.icp is not None else 0
+            self.icp_trace.write("%.3f,%.4f,%.4f,%.4f,%s,%d\n" % (
+                stamp_s, map_pose[0], map_pose[1], map_pose[2],
+                "" if alignment is None else "%.3f" % alignment, recoveries))
+        except OSError as exc:
+            self.node.get_logger().warning(f"ICP trace not written: {exc}")
+            self.icp_trace = None
+
     def on_new_scan(self, now, scan):
         """Update localization health and the lap detector from the newest scan."""
         import rclpy.time
         stamp = rclpy.time.Time.from_msg(scan.header.stamp)
-        map_pose = self.pose("map", stamp)
         odom_pose = self.pose("odom", stamp)
+        if self.icp is not None:
+            if odom_pose is None:
+                return False
+            # Align this scan to the saved map, starting from the odometry-predicted pose.
+            self.icp.update(self.sensor_frame(now, scan), odom_pose[:3], self.odom_speed, now)
+            map_pose = self.pose("map")
+            self.log_icp(stamp.nanoseconds / 1e9, map_pose)
+        else:
+            map_pose = self.pose("map", stamp)
+            self.log_icp(stamp.nanoseconds / 1e9, map_pose)
         if map_pose is None or odom_pose is None:
             return False
         state = self.supervisor.state
@@ -385,7 +459,11 @@ class Runtime:
                 poses = (self.pose("map"), self.pose("odom"))
                 if any(p is None or not 0 <= p[3] <= self.profile.get("timing.pose_timeout_s")
                        for p in poses):
-                    self.supervisor.fault("mapping pose stale", now)
+                    detail = ", ".join(
+                        f"{name} " + ("missing" if p is None else f"{p[3]:.3f} s old")
+                        for name, p in zip(("map pose", "odom pose"), poses))
+                    self.supervisor.fault(f"mapping pose stale ({detail}; limit "
+                                          f"{self.profile.get('timing.pose_timeout_s')} s)", now)
             elif state == State.FINALIZING and abs(self.odom_speed) > 0.1:
                 self.supervisor.fault("car moved during finalization", now)
 
@@ -397,7 +475,7 @@ class Runtime:
                 except Exception as exc:
                     self.node.get_logger().error(f"Mapping start failed: {exc!r}")
                     self.arbiter.release()
-                    self.slam.stop()
+                    self.stop_slam()
                     self.supervisor.fault(f"mapping start failed: {exc}", now)
             elif action == Action.STOP_AFTER_LAP:
                 self.stopping_after_lap = True
@@ -418,27 +496,31 @@ class Runtime:
                 self.arbiter.release()
                 self.speed.reset()
                 if self.slam.mode == "mapping":
-                    self.slam.stop()
+                    self.stop_slam()
             elif action == Action.ABORT_FINALIZE:
                 # The worker checks this under the same lock before switching processes.
                 self.finalize_cancel.set()
-                self.slam.stop()
-                self.grid = None
+                self.stop_slam()
+                self.grid = self.icp = None
 
     def start_mapping(self, now):
         from avlite_autodrive.plugin.controller import AutoDRIVEFollowTheGap
-        self.slam.stop()  # a previous session's localization process
-        self.prepared = self.racer = self.grid = None
+        self.stop_slam()  # a previous session's localization process
+        self.prepared = self.racer = self.grid = self.icp = None
         self.graph_nodes = []
         self.graph_time = -math.inf
         self.map_msg = self.slam_pose = None
         self.pending_scans.clear()
         self.tf.clear()
+        self._pose_seen.clear()
         if self.monitor is not None:
             self.monitor.reset()
         self.plan_pub.publish(self.String(data="{}"))
         self.session_dir = self.data_dir / "sessions" / self.supervisor.session
         self.session_dir.mkdir(parents=True, exist_ok=True)
+        if self.icp_trace is not None:
+            self.icp_trace.close()
+        self.icp_trace = None
         apply_control_settings(mapping_control_config(self.race_config, self.profile))
         self.mapper = AutoDRIVEFollowTheGap(
             racing=mapping_racing_config(self.race_config, self.profile))
@@ -451,7 +533,7 @@ class Runtime:
         self.slam.start("mapping", params)
         self.arbiter.select(CommandSource.MAPPING)
 
-    def sensor_frame(self, now):
+    def sensor_frame(self, now, scan=None):
         from avlite.c50_common.c52_world_sensor_datatypes import Lidar
         from avlite_autodrive.plugin.planned_controller import AutoDRIVESensorFrame
         from avlite_autodrive.sensors import scan_cloud, scan_hit_mask
@@ -460,9 +542,10 @@ class Runtime:
         mount[:2, :2] = [[math.cos(yaw), -math.sin(yaw)], [math.sin(yaw), math.cos(yaw)]]
         mount[:2, 3] = [x, y]
         scan_age, odom_age = self.ages(now)
+        scan = self.scan if scan is None else scan
         return AutoDRIVESensorFrame(
-            lidar=scan_cloud(self.scan), lidar_sensor=Lidar(base_to_sensor=mount),
-            frame_id=self.frames["base_link"], lidar_hit_mask=scan_hit_mask(self.scan),
+            lidar=scan_cloud(scan), lidar_sensor=Lidar(base_to_sensor=mount),
+            frame_id=self.frames["base_link"], lidar_hit_mask=scan_hit_mask(scan),
             lidar_age_s=scan_age, odom_age_s=odom_age)
 
     def control(self, now):
@@ -524,14 +607,14 @@ class Runtime:
             self.node.get_logger().error(f"Finalization failed: {exc}")
             with self.lock:
                 if self.supervisor.session == session:
-                    self.slam.stop()
+                    self.stop_slam()
                     self.supervisor.finalize_failed([str(exc)], time.monotonic())
             return
         with self.lock:
             if not cancel.is_set() and self.supervisor.session == session:
                 failures = self.race_readiness(time.monotonic())
                 if failures:
-                    self.slam.stop()
+                    self.stop_slam()
                     self.supervisor.finalize_failed(failures, time.monotonic())
                 else:
                     self.supervisor.finalize_succeeded(plan, time.monotonic())
@@ -633,20 +716,31 @@ class Runtime:
         prepared.save(self.session_dir / "plan.json")
         racer = AutoDRIVEPlannedController(prepared)
 
-        self._step(cancel, "switching SLAM Toolbox to localization")
         pose = self.pose("map")
         if pose is None:
             raise RuntimeError("no map pose available to transfer to localization")
-        params = effective_parameters(self.slam_params, self.profile, "localization",
-                                      self.session_dir / "slam_localization.yaml",
-                                      map_file=base, start_pose=pose[:3])
-        with self.lock:
-            if cancel.is_set():
-                raise FinalizeCancelled
-            self.slam.stop()  # mapping process stops before localization starts
-            self.slam.start("localization", params)
-            self.grid = grid
-            self.monitor.reset()
+        if self.localization_source == "icp":
+            self._step(cancel, "starting AVLite ICP localization on the saved map")
+            icp = IcpPose(grid.occupied_points(), pose[:3], self.icp_settings)
+            with self.lock:
+                if cancel.is_set():
+                    raise FinalizeCancelled
+                self.stop_slam()  # the mapping SLAM process is no longer needed
+                self.icp = icp
+                self.grid = grid
+                self.monitor.reset()
+        else:
+            self._step(cancel, "switching SLAM Toolbox to localization")
+            params = effective_parameters(self.slam_params, self.profile, "localization",
+                                          self.session_dir / "slam_localization.yaml",
+                                          map_file=base, start_pose=pose[:3])
+            with self.lock:
+                if cancel.is_set():
+                    raise FinalizeCancelled
+                self.stop_slam()  # mapping process stops before localization starts
+                self.slam.start("localization", params)
+                self.grid = grid
+                self.monitor.reset()
 
         self._step(cancel, "waiting for stable localization")
         self._wait(cancel, lambda: not self.monitor.failures(time.monotonic()), 45.0,
@@ -683,7 +777,7 @@ class Runtime:
             self.finalize_cancel.set()
             self._persist()
         self.server.close()
-        self.slam.stop()
+        self.stop_slam()
 
 
 def main(argv=None):

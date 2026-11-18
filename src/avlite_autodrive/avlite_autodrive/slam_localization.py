@@ -294,4 +294,8 @@ class SlamPoseSource:
                                                         pose[1] - truth_world[1])
             values["localization_yaw_error_rad"] = abs(math.atan2(
                 math.sin(pose[2] - truth_world[2]), math.cos(pose[2] - truth_world[2])))
+            values.update({"localization_x_error_m": pose[0] - truth_world[0],
+                           "localization_y_error_m": pose[1] - truth_world[1],
+                           "estimate_x_m": pose[0], "estimate_y_m": pose[1],
+                           "truth_x_m": truth_world[0], "truth_y_m": truth_world[1]})
         return values

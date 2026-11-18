@@ -103,6 +103,13 @@ drive_laps() {
     start_lap="$(topic_value /autodrive/roboracer_1/lap_count data)"; start_lap="${start_lap:-0}"
     start_col="$(topic_value /autodrive/roboracer_1/collision_count data)"; start_col="${start_col:-0}"
     log "$label: driving $LAPS laps at up to $SPEED m/s (lap counter $start_lap)"
+    # Screenshots of the visible simulator for the documentation (SIM=windows only).
+    if [[ "${SIM:-docker}" == windows && -z "${NO_PHOTOS:-}" ]]; then
+        mkdir -p "$OUT/photos"
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$W_REPO\\tools\\sim-localization\\snap.ps1" \
+            -Out "$W_OUT\\photos" -Label "$label" -IntervalSeconds "${PHOTO_INTERVAL:-2}" \
+            >"$OUT/photos/$label-snap.log" 2>&1 &
+    fi
     ros rr-diag "ros2 topic echo --field data /avlite/controller_diagnostics std_msgs/msg/String > /out/$label-diagnostics.txt" >/dev/null
     ros rr-laps "ros2 topic echo --field data /autodrive/roboracer_1/last_lap_time std_msgs/msg/Float32 > /out/$label-lap-times.txt" >/dev/null
     ros rr-avlite "python -m avlite_autodrive.runner --config /out/$config.yaml > /out/$label-runner.log 2>&1" >/dev/null
@@ -118,6 +125,7 @@ drive_laps() {
     (( SECONDS < deadline )) || log "$label: TIMEOUT after $((lap - start_lap)) laps"
     echo "{\"laps\": $((lap - start_lap)), \"collisions\": $((col - start_col))}" > "$OUT/$label-counters.json"
     stop rr-avlite rr-diag rr-laps
+    [[ -d "$OUT/photos" ]] && : > "$OUT/photos/$label.stop"  # ends the screenshot loop
 }
 
 log "Experiment $STAMP: speed $SPEED m/s, $LAPS laps per run"
@@ -139,7 +147,9 @@ if [[ "${LOCALIZER:-slam}" == avlite ]]; then
     [[ -n "$ORIGIN" ]] || { log "Spawn pose not logged by odometry"; exit 1; }
     echo "$ORIGIN" > "$OUT/map_origin_world.txt"
     log "AVLite LidarLocalization from spawn pose $ORIGIN"
-    write_config avlite avlite "start_pose_world: $ORIGIN"
+    write_config avlite avlite "start_pose_world: $ORIGIN
+reference: ${AVLITE_REFERENCE:-map_hits}
+${AVLITE_EXTRA:-}"
     drive_laps avlite avlite
 else
 
@@ -178,7 +188,8 @@ reset_sim
 write_config slam slam "pose_graph: $MAPDIR_C/posegraph
 map_yaml: $MAPDIR_C/map.yaml
 start_pose: [0.0, 0.0, 0.0]
-map_origin_world: ${ORIGIN:-null}"
+map_origin_world: ${ORIGIN:-null}
+${SLAM_EXTRA:-}"
 drive_laps slam slam
 fi  # LOCALIZER
 

@@ -1,4 +1,5 @@
 # Simulator localization: status and to-do (hand-over, 17 Nov 2026)
+> Older notes. Current state and next steps: HANDOVER.md at the repository root. The branch is sim-slam-localization.
 
 Goal: drive the planned racing algorithm in the AutoDRIVE simulator on a pose that does not
 come from simulator ground truth, then carry the same approach to the real car.

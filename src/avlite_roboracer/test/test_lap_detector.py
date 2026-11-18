@@ -1,5 +1,6 @@
 import math
 
+import numpy as np
 import pytest
 
 from avlite_roboracer.geometry import compose, inverse
@@ -110,6 +111,20 @@ def test_scan_similarity():
     assert scan_similarity(START_SCAN, OTHER_SCAN, 0.1) < 0.2
     assert scan_similarity([None, None], [None, None], 0.1) == 0.0
     assert scan_similarity([1.0], [1.0, 2.0], 0.1) == 0.0
+
+
+def test_random_beam_dropout_does_not_hide_the_same_place():
+    rng = np.random.default_rng(3)
+    scan = rng.uniform(1.0, 8.0, 1081)
+
+    def dropped(share):
+        out = scan + rng.normal(0, 0.03, scan.shape)
+        out[rng.random(scan.shape) < share] = np.nan
+        return out
+
+    assert scan_similarity(dropped(0.25), dropped(0.25), 0.15) > 0.7
+    elsewhere = rng.uniform(1.0, 8.0, 1081)
+    assert scan_similarity(dropped(0.25), elsewhere, 0.15) < 0.2
 
 
 def test_three_mapping_laps_complete_only_after_the_third_crossing():
