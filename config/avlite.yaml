@@ -11,6 +11,16 @@ localization:
   # only a diagnostic, which is what lets the pose view compare estimate and truth.
   start_pose_world: [0.8107, 3.1583, -1.5708]
   reference: map_hits
+  # Lost-pose recovery: after 5 scans in a row aligned below 0.5, search 3 m around the estimate and
+  # adopt a pose that fits the map at 0.6 or better (at most one search per 3 s). 0 turns it off.
+  recovery_radius_m: 3.0
+  # The odometry prediction may not speed the estimate up faster than the car can accelerate (planning
+  # acceleration 3.0 m/s^2 plus 10%), to stop launch wheel slip putting the estimate 1 to 2 m ahead. 0 = off.
+  # (Tested and left off: it removes the launch lead but makes the estimate lag the car, and the car crashes more.)
+  odometry_max_accel_mps2: 0
+  odometry_limit_below_mps: 3.0   # apply that limit only below this speed (the launch); 0 = at every speed
+  # The pose given to the controller is moved forward by speed x pose_lead_s (delay compensation). 0 = off.
+  pose_lead_s: 0
   profile: roboracer/sim_profile.yaml
   slam_params: roboracer/slam_toolbox.yaml
   # For source: slam, from a SLAM mapping replay (roboracer_record replay --mode mapping):

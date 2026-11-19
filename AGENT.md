@@ -23,10 +23,10 @@ working at higher speeds later. The pose-view plugin (`PoseComparisonView`, http
 | Step | What | Status | Write-up |
 | --- | --- | --- | --- |
 | 0 | Measure delay and localization error | Done | `step-0-measurement.md` |
-| 1 | Fix the speed the controller sees (simulator clock) and re-run the ICP vs ground-truth comparison | Code done and unit-tested; live speed ratio 0.49 to 0.97; before/after crash comparison NOT completed | `step-1-speed-source.md` |
-| 2 | Reset and recovery: odometry in step with a respawn, no re-seed on a short sensor gap, recovery search in the simulator runner | Not started (awaiting owner approval) | |
-| 3 | Launch error: limit the estimate's lead over wheel odometry while accelerating; use scan alignment for trust | Not started | |
-| 4 | Re-measure at real time; then latency compensation, alignment-based speed limit, planner margins, better matcher as the data justify | Not started | |
+| 1 | Fix the speed the controller sees (simulator clock) and re-run the ICP vs ground-truth comparison | Done. Speed ratio 0.96 to 0.98-0.99 on a near-real-time sim (0.92x); 5+5 trials show no crash reduction (17 vs 20 laps, 4/5 vs 5/5 crashed). Awaiting owner approval | `step-1-speed-source.md` |
+| 2 | Reset and recovery: odometry in step with a respawn, no re-seed on a short sensor gap, recovery search in the simulator runner | Done. Respawn already fine; re-seed-on-gap bug fixed; recovery added. Blind travel of 3 m or more still lost. Awaiting owner approval | `step-2-reset-and-recovery.md` |
+| 3 | Launch error: limit the estimate's lead over wheel odometry while accelerating; use scan alignment for trust | Done. Lead is real (wheel slip) but limiting it made crashes worse; left off | `step-3-launch-error.md` |
+| 4 | Re-measure at real time; then latency compensation, alignment-based speed limit, planner margins, better matcher as the data justify | Done. True pose still far better; braking, pose-lead, accel-limit gave no gain; open: planner margin at one corner and the permanent invalid-pose stop (needs owner decision) | `step-4-real-time-remeasure.md` |
 
 ## Key findings so far
 

@@ -1,0 +1,9 @@
+== docs/validation/localization-at-speed-20261118/step2/gap-before: 5 trials
+   blind under 3 m: 2 of 5 within 0.8 m 5 s after (final errors [0.1, 1.16, 1.57, 0.1, 5.81], blind [0.0, 0.1, 0.0, 0.0, 0.0])
+   blind 3 m or more: 0 of 0 within 0.8 m 5 s after (final errors [], blind [])
+== docs/validation/localization-at-speed-20261118/step2/ab-unlimited: 8 trials
+   blind under 3 m: 3 of 4 within 0.8 m 5 s after (final errors [2.38, 0.53, 0.14, 0.01], blind [2.4, 0.0, 0.0, 0.0])
+   blind 3 m or more: 0 of 4 within 0.8 m 5 s after (final errors [7.59, 6.64, 6.57, 7.35], blind [7.8, 7.6, 9.3, 9.1])
+== docs/validation/localization-at-speed-20261118/step2/ab-limited: 8 trials
+   blind under 3 m: 1 of 6 within 0.8 m 5 s after (final errors [1.05, 4.5, 1.89, 0.97, 2.79, 0.12], blind [0.0, 2.7, 0.1, 0.0, 0.1, 0.1])
+   blind 3 m or more: 0 of 2 within 0.8 m 5 s after (final errors [5.27, 6.94], blind [4.8, 5.0])

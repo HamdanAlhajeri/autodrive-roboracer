@@ -44,18 +44,34 @@ def odom_state(msg):
     return p.x, p.y, yaw, msg.twist.twist.linear.x
 
 
+def free_memory_mb():
+    """Available memory of the container's VM in MB (the Docker VM, not Windows), or None."""
+    try:
+        with open("/proc/meminfo", encoding="ascii") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) // 1024
+    except OSError:
+        pass
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("output")
     parser.add_argument("--seconds", type=float, default=240.0)
     parser.add_argument("--auto-reset", action="store_true")
     parser.add_argument("--stuck-s", type=float, default=3.0)
+    parser.add_argument("--require-motion-s", type=float, default=0.0,
+                        help="abort (exit 3) if the car has not reached 0.5 m/s this many seconds "
+                             "after the first truth message; catches a frozen simulator car")
     args = parser.parse_args()
 
     rclpy.init()
     node = Node("measure_pose")
     out = open(args.output, "w", encoding="utf-8")
-    state = {"truth": None, "still_since": None, "last_reset": 0.0, "resets": 0, "release_at": None}
+    state = {"truth": None, "still_since": None, "last_reset": 0.0, "resets": 0, "release_at": None,
+             "first_truth": None, "peak_v": 0.0}
 
     def now():
         return time.monotonic()
@@ -74,6 +90,8 @@ def main():
         x, y, yaw, speed = odom_state(msg)
         write("truth", s=stamp(msg), x=x, y=y, yaw=yaw, v=speed, w=msg.twist.twist.angular.z)
         state["truth"] = (x, y, yaw, speed)
+        state["first_truth"] = state["first_truth"] or now()
+        state["peak_v"] = max(state["peak_v"], abs(speed or 0.0))
         if speed is not None and abs(speed) < 0.05:
             state["still_since"] = state["still_since"] or now()
         else:
@@ -123,17 +141,28 @@ def main():
         state["still_since"] = None
 
     end = now() + args.seconds
+    write("meta", start_mem_mb=free_memory_mb(), argv=sys.argv[1:])
+    frozen = False
     print(f"recording {args.seconds:.0f} s to {args.output}", flush=True)
     try:
         while now() < end and rclpy.ok():
             rclpy.spin_once(node, timeout_sec=0.02)
             maybe_reset()
+            if (args.require_motion_s and state["first_truth"] and state["peak_v"] < 0.5
+                    and now() - state["first_truth"] > args.require_motion_s):
+                frozen = True
+                break
     finally:
+        write("meta", end_mem_mb=free_memory_mb(), peak_v=state["peak_v"], frozen=frozen)
         if state["release_at"] is not None:
             reset_pub.publish(Bool(data=False))
         out.close()
         node.destroy_node()
         rclpy.shutdown()
+    if frozen:
+        print(f"ABORT: car never passed 0.5 m/s in {args.require_motion_s:.0f} s (frozen simulator "
+              "car or AVLite not driving); restart the simulator and the stack", flush=True)
+        return 3
     print(f"done; {state['resets']} resets", flush=True)
 
 

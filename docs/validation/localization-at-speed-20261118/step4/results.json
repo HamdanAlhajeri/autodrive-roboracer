@@ -1,0 +1,351 @@
+{
+  "icp": {
+    "realtime_factor": 0.9932462476242567,
+    "laps_completed": 21,
+    "recording_s": 300.00347557099303,
+    "duration_s": 297.43760045900126,
+    "driving_s": 222.5321751701743,
+    "resets": 13,
+    "contacts_total": 15,
+    "first_contacts": 9,
+    "peak_speed_mps": 6.3078,
+    "first_contacts_per_driving_minute": 2.426615385334963,
+    "first_contact_details": [
+      {
+        "t": 21.467203760999837,
+        "station_m": 10.142308633678475,
+        "x": 0.3162,
+        "y": -6.2939,
+        "speed_mps": 3.8746,
+        "planned_speed_mps": 3.7414470825566113,
+        "wheel_speed_mps": 0.0,
+        "target_speed_mps": 2.375480733676175,
+        "estimate_error_m": 2.702603841060035,
+        "alignment": 0.47232472324723246
+      },
+      {
+        "t": 40.17809318299987,
+        "station_m": 10.947137846792334,
+        "x": -0.6323,
+        "y": -6.7627,
+        "speed_mps": 4.0496,
+        "planned_speed_mps": 3.1109460024620756,
+        "wheel_speed_mps": 0.0,
+        "target_speed_mps": 3.2994130058310702,
+        "estimate_error_m": 0.3668434799646796,
+        "alignment": 1.0
+      },
+      {
+        "t": 69.22143140400294,
+        "station_m": 12.642713516353915,
+        "x": -2.6827,
+        "y": -6.978,
+        "speed_mps": 2.4975,
+        "planned_speed_mps": 2.545247269580662,
+        "wheel_speed_mps": 2.1845951144241846,
+        "target_speed_mps": 2.4623301306606784,
+        "estimate_error_m": 0.3042714143831392,
+        "alignment": 0.988929889298893
+      },
+      {
+        "t": 99.60573392899823,
+        "station_m": 10.846730907736909,
+        "x": -0.2482,
+        "y": -7.0382,
+        "speed_mps": 4.1389,
+        "planned_speed_mps": 3.1897566155169894,
+        "wheel_speed_mps": 2.7014231995975773,
+        "target_speed_mps": 2.6436922556122697,
+        "estimate_error_m": 0.3984678698564358,
+        "alignment": 1.0
+      },
+      {
+        "t": 121.87203696199867,
+        "station_m": 11.947108474178423,
+        "x": -1.6381,
+        "y": -6.8017,
+        "speed_mps": 3.838,
+        "planned_speed_mps": 2.328149596045461,
+        "wheel_speed_mps": 0.0,
+        "target_speed_mps": 2.2920873893999563,
+        "estimate_error_m": 0.14514195411443648,
+        "alignment": 1.0
+      },
+      {
+        "t": 163.51631290900696,
+        "station_m": 1.0092795106562185,
+        "x": 0.7988,
+        "y": 2.9738,
+        "speed_mps": 4.7942,
+        "planned_speed_mps": 4.54019971035441,
+        "wheel_speed_mps": 1.537242450166969,
+        "target_speed_mps": 1.9116871012009946,
+        "estimate_error_m": 0.4308065520971352,
+        "alignment": 0.7335907335907336
+      },
+      {
+        "t": 207.73659567700815,
+        "station_m": 10.142308633678475,
+        "x": 0.2603,
+        "y": -6.297,
+        "speed_mps": 4.152,
+        "planned_speed_mps": 3.7414470825566113,
+        "wheel_speed_mps": 4.436270164891212,
+        "target_speed_mps": 2.375480733676175,
+        "estimate_error_m": 2.6940084675790454,
+        "alignment": 0.6014760147601476
+      },
+      {
+        "t": 240.81449529100792,
+        "station_m": 11.647645758223431,
+        "x": -1.3259,
+        "y": -6.9837,
+        "speed_mps": 3.7237,
+        "planned_speed_mps": 2.5662690731483457,
+        "wheel_speed_mps": 0.7806173494446424,
+        "target_speed_mps": 2.6323286868091773,
+        "estimate_error_m": 0.12671027420245498,
+        "alignment": 1.0
+      },
+      {
+        "t": 257.88405145199795,
+        "station_m": 10.846730907736909,
+        "x": -0.5317,
+        "y": -6.5821,
+        "speed_mps": 4.3411,
+        "planned_speed_mps": 3.1897566155169894,
+        "wheel_speed_mps": 0.0,
+        "target_speed_mps": 2.0941118200566313,
+        "estimate_error_m": 0.15967451446086606,
+        "alignment": 1.0
+      }
+    ],
+    "overspeed": {
+      "median_mps": -0.745032806388658,
+      "p95_mps": 0.515333390377451,
+      "share_over_1mps": 0.010091235830799005,
+      "share_over_2mps": 0.0
+    },
+    "at_first_contact": {
+      "median_speed": 4.0496,
+      "median_planned": 3.1897566155169894,
+      "over_plan_by_1mps": 3,
+      "median_estimate_error_m": 0.3668434799646796
+    },
+    "braking_by_speed_mps": {
+      "2-4": {
+        "seconds": 22.8,
+        "commanded_median": -3.5,
+        "achieved_median_wall": -1.5222836337409773,
+        "achieved_median_sim": -1.5326346687763723,
+        "achieved_p25_sim": -2.2883234927030847
+      },
+      "4-5.5": {
+        "seconds": 10.700000000000001,
+        "commanded_median": -3.3432875125418215,
+        "achieved_median_wall": -1.2479764004898097,
+        "achieved_median_sim": -1.256462235296475,
+        "achieved_p25_sim": -2.1884311104495944
+      },
+      "5.5-7": {
+        "seconds": 1.5,
+        "commanded_median": -3.5,
+        "achieved_median_wall": -0.8625629119554423,
+        "achieved_median_sim": -0.8684280600290255,
+        "achieved_p25_sim": -1.6676859334469805
+      }
+    },
+    "acceleration": {
+      "commanded_median": 3.0,
+      "achieved_median_wall": 1.2647427915516296,
+      "achieved_median_sim": 1.2733426323802026
+    },
+    "control_dead_time": {
+      "lag_ms_wall": 83.49590717503025,
+      "lag_ms_sim": 82.93199649358205,
+      "peak_correlation": 0.843075492242162
+    },
+    "lost_after_respawn": {
+      "respawns_checked": 3,
+      "lost_error_over_1m": 3,
+      "cases": [
+        {
+          "t": 0.43451997300144285,
+          "error_m": 886.9870163170444
+        },
+        {
+          "t": 109.07909283900517,
+          "error_m": 44.02745923599
+        },
+        {
+          "t": 135.8323954600055,
+          "error_m": 33.36902980481291
+        }
+      ]
+    },
+    "error": {
+      "launch_0_to_6s_after_respawn": {
+        "n": 896,
+        "magnitude_median_m": 0.14431116525468174,
+        "magnitude_p95_m": 1.399467383781158,
+        "magnitude_max_m": 2.1403498511272097,
+        "along_median_m": -0.05929885145616999,
+        "along_p95_abs_m": 1.397556318121911,
+        "cross_p95_abs_m": 0.11052572564873811
+      },
+      "later_than_6s_after_respawn": {
+        "n": 3471,
+        "magnitude_median_m": 0.1530711221891183,
+        "magnitude_p95_m": 0.6879189023184893,
+        "magnitude_max_m": 4.327508648284657,
+        "along_median_m": -0.1445904683252136,
+        "along_p95_abs_m": 0.6820949529693399,
+        "cross_p95_abs_m": 0.09510119856328347
+      }
+    },
+    "error_by_speed_after_launch": [
+      {
+        "speed": [
+          0.5,
+          2
+        ],
+        "n": 376,
+        "median": 0.17266832870070492,
+        "p95": 0.7362274887492608,
+        "along_p95": 0.7271586653081417,
+        "cross_p95": 0.152165340178508
+      },
+      {
+        "speed": [
+          2,
+          3
+        ],
+        "n": 920,
+        "median": 0.11201759978489081,
+        "p95": 0.3985685527781638,
+        "along_p95": 0.3925849657584577,
+        "cross_p95": 0.062067417026747
+      },
+      {
+        "speed": [
+          3,
+          4
+        ],
+        "n": 1236,
+        "median": 0.1905030333471853,
+        "p95": 0.7045435716204684,
+        "along_p95": 0.701242940848605,
+        "cross_p95": 0.1132056465326973
+      },
+      {
+        "speed": [
+          4,
+          5
+        ],
+        "n": 665,
+        "median": 0.18277145791276242,
+        "p95": 1.1885860644535877,
+        "along_p95": 1.1852101016691925,
+        "cross_p95": 0.11881825965623434
+      },
+      {
+        "speed": [
+          5,
+          6
+        ],
+        "n": 257,
+        "median": 0.12653688756914339,
+        "p95": 0.5171188543375815,
+        "along_p95": 0.516851088130038,
+        "cross_p95": 0.05317676944209763
+      }
+    ],
+    "estimate_lag_after_launch": {
+      "best_lag_ms": 50.0,
+      "mean_error_at_0_ms_m": 0.26755915443999206,
+      "mean_error_at_best_m": 0.184354938706728
+    },
+    "wheel_speed_ratio_median": 1.0042796581405864,
+    "wheel_speed_ratio_by_lateral_acc": {
+      "0-1": {
+        "n": 5344,
+        "median": 1.0351659197714405
+      },
+      "1-3": {
+        "n": 6597,
+        "median": 1.0210892983035351
+      },
+      "3-99": {
+        "n": 8936,
+        "median": 0.9569441832589143
+      }
+    }
+  },
+  "groundtruth": {
+    "realtime_factor": 0.9955155034330369,
+    "laps_completed": 38,
+    "recording_s": 299.99944588200015,
+    "duration_s": 297.4494679180061,
+    "driving_s": 295.8132663771678,
+    "resets": 1,
+    "contacts_total": 0,
+    "first_contacts": 0,
+    "peak_speed_mps": 6.6651,
+    "first_contacts_per_driving_minute": 0.0,
+    "first_contact_details": [],
+    "overspeed": {
+      "median_mps": -0.3112966476860368,
+      "p95_mps": -0.04206238593741096,
+      "share_over_1mps": 0.0,
+      "share_over_2mps": 0.0
+    },
+    "braking_by_speed_mps": {
+      "2-4": {
+        "seconds": 24.5,
+        "commanded_median": -3.5,
+        "achieved_median_wall": -2.2468066375981754,
+        "achieved_median_sim": -2.2569278226708263,
+        "achieved_p25_sim": -2.7264988521504896
+      },
+      "4-5.5": {
+        "seconds": 23.200000000000003,
+        "commanded_median": -3.5,
+        "achieved_median_wall": -2.8131375721168994,
+        "achieved_median_sim": -2.8258099069434777,
+        "achieved_p25_sim": -3.0654414008524906
+      },
+      "5.5-7": {
+        "seconds": 7.4,
+        "commanded_median": -3.5,
+        "achieved_median_wall": -2.565613339765571,
+        "achieved_median_sim": -2.577170652710128,
+        "achieved_p25_sim": -3.4834628883157377
+      }
+    },
+    "acceleration": {
+      "commanded_median": 3.0,
+      "achieved_median_wall": 2.8203778024417026,
+      "achieved_median_sim": 2.833082752318397
+    },
+    "control_dead_time": {
+      "lag_ms_wall": 82.27629187098707,
+      "lag_ms_sim": 81.90732412254917,
+      "peak_correlation": 0.9840010343280894
+    },
+    "wheel_speed_ratio_median": 1.018873422610223,
+    "wheel_speed_ratio_by_lateral_acc": {
+      "0-1": {
+        "n": 3405,
+        "median": 1.0065811351423843
+      },
+      "1-3": {
+        "n": 7018,
+        "median": 0.9733161509645746
+      },
+      "3-99": {
+        "n": 19217,
+        "median": 1.032287456460877
+      }
+    }
+  }
+}

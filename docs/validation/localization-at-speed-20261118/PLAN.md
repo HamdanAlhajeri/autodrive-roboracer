@@ -11,10 +11,10 @@ and keeps working at higher speeds later.
 | Step | What | Status | Write-up |
 | --- | --- | --- | --- |
 | 0 | Measure delay and localization error | **Done** (18 Nov) | [step-0-measurement.md](step-0-measurement.md) |
-| 1 | Fix the speed the controller sees; get the simulator back to real time; re-run the ICP vs ground-truth comparison | **Code done; before/after comparison not completed** (18 Nov) | [step-1-speed-source.md](step-1-speed-source.md) |
-| 2 | Reset and recovery: odometry stays in step with a respawn, no re-seed on a short sensor gap, recovery search in the simulator runner | Not started | |
-| 3 | Launch error: limit how far the estimate may lead wheel odometry while accelerating from a stop; use scan alignment to decide trust | Not started | |
-| 4 | Re-measure at real time, then the earlier ideas as the data justify: latency compensation, alignment-based speed limit, planner margins from measured error, better matcher | Not started | |
+| 1 | Fix the speed the controller sees; get the simulator back to real time; re-run the ICP vs ground-truth comparison | **Done** (18 Nov): fix correct (speed ratio 0.96 to 0.98), no crash reduction on a near-real-time sim | [step-1-speed-source.md](step-1-speed-source.md) |
+| 2 | Reset and recovery: odometry stays in step with a respawn, no re-seed on a short sensor gap, recovery search in the simulator runner | **Done** (18 Nov): re-seed bug fixed, recovery added; blind travel of 3 m or more still lost | [step-2-reset-and-recovery.md](step-2-reset-and-recovery.md) |
+| 3 | Launch error: limit how far the estimate may lead wheel odometry while accelerating from a stop; use scan alignment to decide trust | **Done** (18 Nov): the lead is real (wheel slip) but limiting it made crashes about five times worse; left off | [step-3-launch-error.md](step-3-launch-error.md) |
+| 4 | Re-measure at real time, then the earlier ideas as the data justify: latency compensation, alignment-based speed limit, planner margins from measured error, better matcher | **Done** (18 Nov): true pose still far better at real time; no setting helped; failures located (one corner, permanent invalid-pose stop) | [step-4-real-time-remeasure.md](step-4-real-time-remeasure.md) |
 
 ## What step 0 found (the reason for this order)
 

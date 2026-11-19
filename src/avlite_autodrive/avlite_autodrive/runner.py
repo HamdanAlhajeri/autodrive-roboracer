@@ -19,7 +19,8 @@ from .pose_view import geometry_from_map, pose_view_config
 from .configuration import load_config
 from .race_planning import prepare_plan
 from .slam_localization import localization_config
-from .avlite_localization import AutoDRIVELidarLocalization, avlite_localization_config
+from .avlite_localization import (
+    AutoDRIVELidarLocalization, after_interruption, avlite_localization_config)
 from .response_test import ResponseExperiment, measurement_config
 from .plugin.response_controller import AutoDRIVEResponseController
 
@@ -167,7 +168,7 @@ def main():
             if ready != was_ready or generation != world.reset_generation:
                 controller.reset()
                 if localizer:
-                    localizer.reset()  # back at the spawn pose after a reset
+                    after_interruption(localizer, generation != world.reset_generation)
                 if view:
                     view.reset()
                 if local_planner:
@@ -234,6 +235,8 @@ def stack_localization_diagnostics(pm, world, localizer=None):
     if localizer is not None and localizer.alignment is not None:
         values["localization_alignment"] = localizer.alignment
         values["localization_hits"] = float(localizer.hits)
+        values["localization_recoveries"] = float(localizer.recoveries)
+        values["localization_odom_clipped"] = float(localizer.odometry_clipped)
     return values
 
 
