@@ -32,21 +32,21 @@ transform_owners:
 
 # Static sensor mounts relative to base_link (metres, radians). Measure on the car.
 mounts:
-  laser: {x_m: null, y_m: null, yaw_rad: null}
+  laser: {x_m: 0.27, y_m: 0.0, yaw_rad: 0.0}
 
 vehicle:
-  wheelbase_m: null
-  width_m: null               # Overall width; half is the footprint radius.
-  length_m: null
-  rear_axle_to_front_m: null  # Rear axle to front bumper.
+  wheelbase_m: 0.314
+  width_m: 0.295               # Overall width; half is the footprint radius.
+  length_m: 0.553
+  rear_axle_to_front_m: 0.44  # Rear axle to front bumper.
 
 steering:
-  max_angle_rad: null         # Largest commanded angle the servo reaches without binding.
-  positive_left: null         # true if a positive steering_angle turns the car left.
+  max_angle_rad: 0.22         # Largest commanded angle the servo reaches without binding.
+  positive_left: true         # true if a positive steering_angle turns the car left.
   center_offset_rad: 0.0      # Added to every command after the sign is applied.
 
 motor:
-  max_command_speed_mps: null # Hard clamp on speed sent to the driver.
+  max_command_speed_mps: 1.0 # Hard clamp on speed sent to the driver.
   stop_command_speed_mps: 0.0 # Ackermann speed used to stop; verify it brakes, not coasts.
 
 # Commissioning results (wheels clear first, then on the floor at low speed).
@@ -58,8 +58,8 @@ measurements:
   stopping_distance_m: null        # Measured distance from that speed.
 
 limits:
-  mapping_speed_mps: null     # Slow autonomous mapping lap.
-  racing_speed_mps: null      # Ceiling for the racing profile; <= stop_test_speed_mps.
+  mapping_speed_mps: 0.6     # Slow autonomous mapping lap.
+  racing_speed_mps: 1.0      # Ceiling for the racing profile; <= stop_test_speed_mps.
 
 # Operator dead-man. Autonomous commands reach the driver only while a fresh joystick
 # message shows this button held; releasing it, or the joystick going silent (out of
@@ -67,7 +67,7 @@ limits:
 # `ros2 topic echo /joy` while pressing the button. Autonomy is refused until set.
 deadman:
   topic: /joy                 # sensor_msgs/Joy from joy_node
-  button: null                # buttons[] index the operator holds during autonomy
+  button: 1                # buttons[] index the operator holds during autonomy
   timeout_s: 0.25             # joy_node must publish at least this often (autorepeat)
 
 timing:
@@ -78,10 +78,10 @@ timing:
 
 # READY thresholds. Establish from vehicle size, track clearance and measured behaviour.
 localization:
-  max_position_stddev_m: null
-  max_yaw_stddev_rad: null
-  min_scan_alignment: null         # Fraction of scan endpoints near mapped walls.
+  max_position_stddev_m: 0.15
+  max_yaw_stddev_rad: 0.08
+  min_scan_alignment: 0.7         # Fraction of scan endpoints near mapped walls.
   scan_alignment_tolerance_m: 0.10
-  max_motion_mismatch_m: null      # Map-frame vs odometry motion per pose update.
-  max_motion_mismatch_rad: null
+  max_motion_mismatch_m: 0.15      # Map-frame vs odometry motion per pose update.
+  max_motion_mismatch_rad: 0.1
   stable_duration_s: 2.0
