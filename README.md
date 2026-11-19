@@ -86,7 +86,9 @@ The current setup uses the original **practice track** with `maps/practice.json`
 With no `config/windows-simulator.json` override, the launcher opens the stock
 practice simulator and downloads it if needed. Unity Editor is not required for
 this workflow. The custom sketch track remains available through
-[sketch setup](docs/sketch-track.md). The simulator scene and AVLite map must match.
+[sketch setup](docs/sketch-track.md). A replica of the RoboRacer IROS 2026 race track
+is prepared in [IROS 2026 track](docs/iros2026-track.md). The simulator scene and
+AVLite map must match.
 
 See the [command reference](docs/commands.md) for options and migration from the
 old scripts, or the [documentation index](docs/README.md) for all guides.

@@ -16,6 +16,29 @@ function Invoke-AvliteCompose {
     if ($LASTEXITCODE -ne 0) { throw "Docker Compose failed: $args. Check Docker Desktop and the output above." }
 }
 
+function Get-CustomTrack([string]$Track) {
+    <#
+    .SYNOPSIS
+    Return the asset, map, profile and simulator paths of a custom Unity track.
+    .DESCRIPTION
+    sketch is the traced hand-drawn circuit; iros2026 replicates the official RoboRacer
+    IROS 2026 map. sketch-map, sketch-build and sketch-test share this table so one
+    -Track value selects matching files. Paths are relative to the repository root.
+    #>
+    $tracks = @{
+        sketch = @{ Label = 'Sketch'; Assets = 'assets\tracks\sketch_track'; Mesh = 'sketch_track'
+            Preview = 'sketch_track_preview.png'; Map = 'sketch'; Profile = 'avlite.sketch.yaml'
+            UnityFolder = 'SketchTrack'; Player = 'log\windows\sketch\AutoDRIVE Simulator.exe'
+            Doc = 'docs\sketch-track.md' }
+        iros2026 = @{ Label = 'IROS 2026'; Assets = 'assets\tracks\iros2026'; Mesh = 'iros2026_track'
+            Preview = 'iros2026_track_preview.png'; Map = 'iros2026'; Profile = 'avlite.iros2026.yaml'
+            UnityFolder = 'IROS2026Track'; Player = 'log\windows\iros2026\AutoDRIVE Simulator.exe'
+            Doc = 'docs\iros2026-track.md' }
+    }
+    if (-not $tracks.ContainsKey($Track)) { throw "Unknown custom track: $Track" }
+    $tracks[$Track]
+}
+
 function Get-AvliteCommands {
     <#
     .SYNOPSIS
@@ -37,9 +60,9 @@ function Get-AvliteCommands {
         speed = @{ Script = 'speed.ps1'; Preset = @{}; Description = 'Inspect configured speed limits and plan without driving' }
         sweep = @{ Script = 'sweep.ps1'; Preset = @{}; Description = 'Run the speed-tuning test matrix and tabulate every run' }
         map = @{ Script = 'map.ps1'; Preset = @{}; Description = 'Build a race map from a clean recording' }
-        'sketch-map' = @{ Script = 'sketch-map.ps1'; Preset = @{}; Description = 'Convert supplied sketch assets to a validated map and profile' }
-        'sketch-build' = @{ Script = 'sketch-build.ps1'; Preset = @{}; Description = 'Create/build the sketch track in an existing Unity source checkout' }
-        'sketch-test' = @{ Script = 'sketch-test.ps1'; Preset = @{}; Description = 'Run native sketch scene checks; no autonomous laps' }
+        'sketch-map' = @{ Script = 'sketch-map.ps1'; Preset = @{}; Description = 'Convert a custom track (-Track sketch|iros2026) to a validated map and profile' }
+        'sketch-build' = @{ Script = 'sketch-build.ps1'; Preset = @{}; Description = 'Create/build a custom track scene (-Track) in an existing Unity source checkout' }
+        'sketch-test' = @{ Script = 'sketch-test.ps1'; Preset = @{}; Description = 'Run native custom-track scene checks (-Track); no autonomous laps' }
         test = @{ Script = 'test.ps1'; Preset = @{}; Description = 'Run Windows command/workflow tests with Docker mocked' }
         live = @{ Script = 'live.ps1'; Preset = @{}; Description = 'Open the live view of estimated vs true car position' }
         car = @{ Script = 'car.ps1'; Preset = @{}; Description = 'Jetson car over SSH: status, map-start, race-start or stop' }

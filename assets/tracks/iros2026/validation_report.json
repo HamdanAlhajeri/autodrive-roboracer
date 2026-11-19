@@ -1,0 +1,33 @@
+{
+  "file": "iros2026_track.obj",
+  "objects": {
+    "Track_Surface": {
+      "vertices": 8450,
+      "triangles": 16900,
+      "watertight": true,
+      "consistent_winding": true,
+      "volume_m3": 49.292524
+    },
+    "Outer_Barrier": {
+      "vertices": 35104,
+      "triangles": 70208,
+      "watertight": true,
+      "consistent_winding": true,
+      "volume_m3": 3.89373
+    },
+    "Inner_Barrier": {
+      "vertices": 32512,
+      "triangles": 65024,
+      "watertight": true,
+      "consistent_winding": true,
+      "volume_m3": 3.606022
+    }
+  },
+  "spec_checks": {
+    "minimum_width_ge_1_m": true,
+    "most_sections_ge_1_5_m": true,
+    "pipe_height_ge_0_30_m": true,
+    "extent_within_43_x_23_m": false
+  },
+  "unity_runtime_tested": false
+}

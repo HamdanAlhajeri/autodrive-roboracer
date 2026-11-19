@@ -1,4 +1,4 @@
-"""Convert the supplied Unity XZ track metadata into an offline AVLite map."""
+"""Convert supplied Unity XZ track metadata (sketch, IROS 2026, ...) into an offline AVLite map."""
 
 import argparse
 import hashlib
@@ -60,6 +60,80 @@ def road_polygons(metadata, extra_inset=0.0):
     return outer, inner, Polygon(outer.exterior.coords, [inner.exterior.coords])
 
 
+def arc_length_pairing(inner, outer, spacing):
+    """Pair equal arc-length fractions of both loops at the best-aligned phase offset."""
+    count = int(np.ceil(max(inner.length, outer.length) / spacing))
+    fractions = np.arange(count) / count
+    left = inner.at(fractions * inner.length)
+
+    def cost(phase):
+        """Score how well inner and outer samples line up at a proposed phase offset.
+
+        The phase is a fraction of the outer perimeter. Lower mean squared cross-track
+        distance gives a better pairing for the optimizer.
+        """
+        right = outer.at((fractions + phase) * outer.length)
+        return float(np.mean(np.sum((left - right)**2, axis=1)))
+
+    phase = min(np.arange(512) / 512, key=cost)
+    phase = minimize_scalar(cost, bounds=(phase - 1 / 512, phase + 1 / 512),
+                            method="bounded").x
+    return left, outer.at((fractions + phase) * outer.length)
+
+
+def monotone_pairing(inner, outer, spacing):
+    """Pair the loops with the shortest monotone matching, then resample evenly.
+
+    Fixed-fraction pairing fails on snaking layouts where one wall is locally much longer
+    than the other (hairpins, separators shared by two corridors). Dynamic programming
+    keeps both walls in order while minimising the summed cross-track distance. The pairs
+    are then resampled at even spacing along their midline.
+    """
+    a = inner.at(np.arange(0, inner.length, spacing))
+    b = outer.at(np.arange(0, outer.length, spacing))
+    b = np.roll(b, -int(np.argmin(np.linalg.norm(b - a[0], axis=1))), axis=0)
+    n, m = len(a), len(b)
+    cost = np.linalg.norm(a[:, None, :] - b[None, :, :], axis=2)
+    total = np.full((n, m), np.inf)
+    move = np.zeros((n, m), dtype=np.int8)
+    total[0, 0] = cost[0, 0]
+    for j in range(1, m):
+        total[0, j] = total[0, j - 1] + cost[0, j]
+        move[0, j] = 2
+    for i in range(1, n):
+        prev, c = total[i - 1], cost[i]
+        diagonal = np.r_[np.inf, prev[:-1]]
+        best = np.minimum(prev, diagonal)
+        choice = np.where(diagonal <= prev, 0, 1).astype(np.int8)
+        # A run of horizontal steps ending at j costs best[k] + c[k..j]; take the cheapest
+        # k <= j with a cumulative minimum instead of a per-cell loop.
+        summed = np.cumsum(c)
+        start_value = best - np.r_[0.0, summed[:-1]]
+        running = np.minimum.accumulate(start_value)
+        total[i] = summed + running
+        move[i] = np.where(start_value <= running, choice, 2)
+    i, j, pairs = n - 1, m - 1, []
+    while i or j:
+        pairs.append((i, j))
+        step = move[i, j]
+        i, j = (i - 1, j - 1) if step == 0 else (i - 1, j) if step == 1 else (i, j - 1)
+    pairs.append((0, 0))
+    pairs = np.array(pairs[::-1])
+    left, right = a[pairs[:, 0]], b[pairs[:, 1]]
+    middle = (left + right) / 2
+    keep = np.r_[True, np.linalg.norm(np.diff(middle, axis=0), axis=1) > 1e-9]
+    left, right, middle = left[keep], right[keep], middle[keep]
+    steps = np.diff(np.vstack([middle, middle[:1]]), axis=0)
+    s = np.r_[0, np.cumsum(np.linalg.norm(steps, axis=1))]
+    samples = np.arange(0, s[-1], spacing)
+
+    def even(points):
+        closed = np.vstack([points, points[:1]])
+        return np.column_stack([np.interp(samples, s, closed[:, k]) for k in range(2)])
+
+    return even(left), even(right)
+
+
 def build_sketch_map(metadata, spacing=0.1):
     """Create paired AVLite boundaries and a starting route from the supplied track geometry.
 
@@ -76,41 +150,37 @@ def build_sketch_map(metadata, spacing=0.1):
         points = ccw_points(polygon)
         points = np.roll(points, -np.argmin(points[:, 0]), axis=0)
         paths.append(ClosedPath(points))
-    count = int(np.ceil(max(p.length for p in paths) / spacing))
-    fractions = np.arange(count) / count
-    left = paths[0].at(fractions * paths[0].length)
+    if metadata.get("map_boundary_pairing", "arc_length") == "monotone_nearest":
+        left, right = monotone_pairing(paths[0], paths[1], spacing)
+    else:
+        left, right = arc_length_pairing(paths[0], paths[1], spacing)
 
-    def cost(phase):
-        """Score how well inner and outer samples line up at a proposed phase offset.
-
-        The phase is a fraction of the outer perimeter. Lower mean squared cross-track
-        distance gives a better pairing for the optimizer.
-        """
-        right = paths[1].at((fractions + phase) * paths[1].length)
-        return float(np.mean(np.sum((left - right)**2, axis=1)))
-
-    phase = min(np.arange(512) / 512, key=cost)
-    phase = minimize_scalar(cost, bounds=(phase - 1 / 512, phase + 1 / 512),
-                            method="bounded").x
-    right = paths[1].at((fractions + phase) * paths[1].length)
-
-    # The unequal perimeters make an index midpoint a poor optimizer seed at
-    # the concave inner bend. Start with a smooth route 1.2 m from the island.
-    seed_polygon = Polygon(left).buffer(1.2)
-    if seed_polygon.geom_type != "Polygon" or len(seed_polygon.interiors):
-        raise ValueError("Cannot form a single reference route around the island")
-    seed = ClosedPath(ccw_points(seed_polygon))
-    seed = gaussian_filter1d(seed.at(np.arange(0, seed.length, spacing)),
-                             0.3 / spacing, axis=0, mode="wrap")
+    if metadata.get("map_reference_seed", "island_offset") == "smoothed_midline":
+        # Snaking layouts can bring a fixed island offset across a thin separator, so
+        # seed the optimizer with the paired-boundary midline instead.
+        midline = ClosedPath((left + right) / 2)
+        seed = gaussian_filter1d(midline.at(np.arange(0, midline.length, spacing)),
+                                 0.3 / spacing, axis=0, mode="wrap")
+        seed_note = {"reference_seed": "smoothed_midline"}
+    else:
+        # The unequal perimeters make an index midpoint a poor optimizer seed at
+        # the concave inner bend. Start with a smooth route 1.2 m from the island.
+        seed_polygon = Polygon(left).buffer(1.2)
+        if seed_polygon.geom_type != "Polygon" or len(seed_polygon.interiors):
+            raise ValueError("Cannot form a single reference route around the island")
+        seed = ClosedPath(ccw_points(seed_polygon))
+        seed = gaussian_filter1d(seed.at(np.arange(0, seed.length, spacing)),
+                                 0.3 / spacing, axis=0, mode="wrap")
+        seed_note = {"reference_inner_clearance_m": 1.2}
     data = {
         "LeftBound": left.tolist(), "RightBound": right.tolist(),
         "ReferencePoint": [0.0, 0.0], "ReferencePath": seed.tolist(),
         "frame_id": "world", "units": "m", "closed": True,
-        "source": "sketch_track_metadata", "spacing_m": spacing,
+        "source": metadata.get("source_id", "sketch_track_metadata"), "spacing_m": spacing,
         "unity_transform": "identity; world_xy = (unity_z, -unity_x)",
         "barrier_radius_m": metadata["barrier_diameter_m"] / 2,
         "boundary_approximation_allowance_m": 0.01,
-        "reference_inner_clearance_m": 1.2, "unity_runtime_tested": False,
+        **seed_note, "unity_runtime_tested": False,
     }
     _, _, mapped = validate_map(data)
     _, _, physical = road_polygons(metadata)
@@ -154,7 +224,7 @@ def main():
     if args.profile_output.resolve().parent != args.config.resolve().parent:
         parser.error("Keep the generated profile beside the input so shared settings resolve")
     metadata = json.loads(args.metadata.read_text(encoding="utf-8"))
-    data = build_sketch_map(metadata)
+    data = build_sketch_map(metadata, spacing=metadata.get("map_spacing_m", 0.1))
     data["source_metadata_sha256"] = hashlib.sha256(args.metadata.read_bytes()).hexdigest()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(data, indent=2, allow_nan=False) + "\n", encoding="utf-8")
@@ -172,7 +242,8 @@ def main():
     )
     profile["c30_control"].update(c32_ego_max_acceleration=1.0, c32_ego_min_acceleration=-1.5)
     args.profile_output.write_text(
-        "# Sketch track commissioning. Use only with the matching custom Unity build.\n"
+        f"# {metadata.get('name', 'Sketch track')} commissioning."
+        " Use only with the matching custom Unity build.\n"
         "# Before driving, set driving.yaml to speed_mps: 2.5 and max_throttle: 0.2.\n"
         + yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
     prepared = prepare_plan(load_config(args.profile_output), args.profile_output)

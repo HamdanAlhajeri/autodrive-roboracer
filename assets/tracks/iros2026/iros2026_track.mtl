@@ -1,0 +1,24 @@
+# Plain diffuse materials; no textures. Unity sets physics.
+newmtl Concrete
+Kd 0.62 0.62 0.60
+Ks 0.10 0.10 0.10
+Ns 20
+illum 2
+
+newmtl Pipe_Yellow
+Kd 0.95 0.78 0.08
+Ks 0.15 0.15 0.15
+Ns 30
+illum 2
+
+newmtl Pipe_Orange
+Kd 0.96 0.42 0.06
+Ks 0.15 0.15 0.15
+Ns 30
+illum 2
+
+newmtl Pipe_Black
+Kd 0.04 0.04 0.04
+Ks 0.15 0.15 0.15
+Ns 30
+illum 2

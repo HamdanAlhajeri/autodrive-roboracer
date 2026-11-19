@@ -1,13 +1,16 @@
 <#
 .SYNOPSIS
-Create and build the sketch scene in an existing AutoDRIVE Unity source checkout.
+Create and build a custom track scene in an existing AutoDRIVE Unity source checkout.
 .DESCRIPTION
 Copies this repository's track tools and assets into ProjectPath, then invokes
-Unity in batch mode. SceneOnly updates the scene; BuildOnly builds an existing
-scene. With neither switch, both stages run. Logs and the Windows player are
-saved under log; the active AVLite track profile is not selected by this script.
+Unity in batch mode. Track is sketch (default) or iros2026. SceneOnly updates
+the scene; BuildOnly builds an existing scene. With neither switch, both stages
+run. Logs and the Windows player are saved under log; the active AVLite track
+profile is not selected by this script.
 #>
 param(
+    [ValidateSet('sketch', 'iros2026')]
+    [string]$Track = 'sketch',
     [string]$ProjectPath = (Join-Path $env:USERPROFILE 'AutoDRIVE-Unity'),
     [string]$UnityPath = 'C:\Program Files\Unity\Hub\Editor\2022.3.52f1\Editor\Unity.exe',
     [switch]$SceneOnly,
@@ -16,6 +19,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 if ($SceneOnly -and $BuildOnly) { throw 'Choose either SceneOnly or BuildOnly.' }
+$custom = Get-CustomTrack $Track
 $ProjectPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ProjectPath)
 if (-not (Test-Path -LiteralPath $UnityPath -PathType Leaf)) {
     throw "Unity Editor not found: $UnityPath"
@@ -29,21 +33,21 @@ if (-not (Select-String -LiteralPath $versionFile -Pattern '^m_EditorVersion: 20
 }
 $editorTools = Join-Path $ProjectPath 'Assets\Editor\AutoDRIVEIntegration'
 $runtimeTools = Join-Path $ProjectPath 'Assets\AutoDRIVEIntegration'
-$trackAssets = Join-Path $ProjectPath 'Assets\Tracks\SketchTrack'
+$trackAssets = Join-Path $ProjectPath ('Assets\Tracks\' + $custom.UnityFolder)
 foreach ($directory in @($editorTools, $runtimeTools, $trackAssets)) {
     New-Item -ItemType Directory -Path $directory -Force | Out-Null
 }
 Copy-Item -LiteralPath "$ProjectRoot\tools\unity\Editor\SketchTrackBuilder.cs" -Destination $editorTools
 Copy-Item -LiteralPath "$ProjectRoot\tools\unity\Runtime\SketchTrackSmokeCheck.cs" -Destination $runtimeTools
-foreach ($trackFile in @('sketch_track.obj', 'sketch_track.mtl', 'track_metadata.json', 'sketch_track_preview.png')) {
-    Copy-Item -LiteralPath (Join-Path "$ProjectRoot\assets\tracks\sketch_track" $trackFile) -Destination $trackAssets
+foreach ($trackFile in @("$($custom.Mesh).obj", "$($custom.Mesh).mtl", 'track_metadata.json', $custom.Preview)) {
+    Copy-Item -LiteralPath (Join-Path (Join-Path $ProjectRoot $custom.Assets) $trackFile) -Destination $trackAssets
 }
-if (-not (Test-Path -LiteralPath "$ProjectRoot\config\maps\sketch.plan.json")) {
-    throw 'Run .\avlite.ps1 sketch-map to generate and validate the AVLite plan first.'
+if (-not (Test-Path -LiteralPath "$ProjectRoot\config\maps\$($custom.Map).plan.json")) {
+    throw "Run .\avlite.ps1 sketch-map -Track $Track to generate and validate the AVLite plan first."
 }
 $buildLogs = Join-Path $ProjectRoot 'log\unity-build'
 New-Item -ItemType Directory -Path $buildLogs -Force | Out-Null
-$playerPath = Join-Path $ProjectRoot 'log\windows\sketch\AutoDRIVE Simulator.exe'
+$playerPath = Join-Path $ProjectRoot $custom.Player
 
 function Invoke-UnityStage([string]$Method, [string]$LogName) {
     <#
@@ -58,7 +62,7 @@ function Invoke-UnityStage([string]$Method, [string]$LogName) {
     $stageLog = Join-Path $buildLogs $LogName
     $unityArguments = @('-batchmode', '-nographics', '-quit', '-projectPath', ('"' + $ProjectPath + '"'),
         '-executeMethod', ('AutoDriveTrackTools.SketchTrackBuilder.' + $Method),
-        '-sketchSource', ('"' + $ProjectRoot + '"'),
+        '-sketchSource', ('"' + $ProjectRoot + '"'), '-trackId', $Track,
         '-sketchBuild', ('"' + $playerPath + '"'), '-logFile', ('"' + $stageLog + '"'))
     Write-Host "Unity $Method running. Log: $stageLog"
     $unityProcess = Start-Process -FilePath $UnityPath -ArgumentList $unityArguments `
@@ -74,6 +78,6 @@ function Invoke-UnityStage([string]$Method, [string]$LogName) {
 if ($SceneOnly) { Invoke-UnityStage 'CreateScene' 'create-scene.log' }
 elseif ($BuildOnly) { Invoke-UnityStage 'BuildPlayer' 'build-player.log' }
 else { Invoke-UnityStage 'CreateAndBuild' 'build-track.log' }
-Write-Host 'Sketch scene: Assets/Scenes/RoboRacer - Sketch Track.unity'
-if (-not $SceneOnly) { Write-Host "Sketch simulator: $playerPath" }
-Write-Host 'Verify the simulator, then activate the matching profile using docs\sketch-track.md.'
+Write-Host "$($custom.Label) scene: Assets/Scenes/RoboRacer - $($custom.Label) Track.unity"
+if (-not $SceneOnly) { Write-Host "$($custom.Label) simulator: $playerPath" }
+Write-Host "Verify the simulator, then activate the matching profile using $($custom.Doc)."

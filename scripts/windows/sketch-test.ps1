@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Check the built sketch simulator's spawn, LiDAR, lap triggers and reset behavior.
+Check a built custom-track simulator's spawn, LiDAR, lap triggers and reset behavior.
 .DESCRIPTION
 Starts a separate simulator process with the smoke-test flag and waits for its
 JSON report. The Unity test moves the car through triggers to check the scene;
@@ -8,16 +8,19 @@ it does not test autonomous driving. Logs and a screenshot stay under log for
 inspection. Visible shows the test window; otherwise it runs in batch mode.
 #>
 param(
+    [ValidateSet('sketch', 'iros2026')]
+    [string]$Track = 'sketch',
     [string]$SimulatorPath,
     [switch]$Visible
 )
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
-if (-not $SimulatorPath) { $SimulatorPath = Join-Path $ProjectRoot 'log\windows\sketch\AutoDRIVE Simulator.exe' }
+$custom = Get-CustomTrack $Track
+if (-not $SimulatorPath) { $SimulatorPath = Join-Path $ProjectRoot $custom.Player }
 $SimulatorPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SimulatorPath)
 if (-not (Test-Path -LiteralPath $SimulatorPath -PathType Leaf)) {
-    throw 'Build the sketch simulator with .\avlite.ps1 sketch-build first.'
+    throw "Build the $($custom.Label) simulator with .\avlite.ps1 sketch-build -Track $Track first."
 }
 $testDirectory = Join-Path $ProjectRoot ('log\unity-build\smoke-' + (Get-Date -Format yyyyMMdd-HHmmss))
 New-Item -ItemType Directory -Path $testDirectory -Force | Out-Null
@@ -31,7 +34,7 @@ $windowStyle = 'Hidden'
 if ($Visible) { $windowStyle = 'Normal' } else { $arguments = @('-batchmode') + $arguments }
 $player = Start-Process -FilePath $SimulatorPath -ArgumentList $arguments `
     -WorkingDirectory (Split-Path -Parent $SimulatorPath) -WindowStyle $windowStyle -PassThru
-Write-Host "Testing sketch simulator. Results: $testDirectory"
+Write-Host "Testing $($custom.Label) simulator. Results: $testDirectory"
 if (-not $player.WaitForExit(180000)) {
     $player.Kill()
     throw "Sketch smoke test timed out. See $playerLog"

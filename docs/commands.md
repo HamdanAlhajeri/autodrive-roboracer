@@ -103,7 +103,9 @@ overwrite an existing map name. See [map preparation](planned-driving.md).
 .\avlite.ps1 test
 ```
 
-`sketch-build` accepts `-ProjectPath`, `-UnityPath`, and either `-SceneOnly` or
+All three track commands take `-Track sketch` (default) or `-Track iros2026`; see the
+[IROS 2026 track](iros2026-track.md). `sketch-build` also accepts `-ProjectPath`,
+`-UnityPath`, and either `-SceneOnly` or
 `-BuildOnly`. It needs an existing AutoDRIVE Unity source project and the exact
 editor version described in [sketch setup](sketch-track.md). `sketch-test` accepts
 `-SimulatorPath` and checks the native scene; it does not validate autonomous laps.
