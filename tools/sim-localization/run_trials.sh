@@ -12,9 +12,11 @@ LABEL="${1:?label}"
 TRIALS="${2:-6}"
 SECONDS_PER="${3:-40}"
 ODOM_ARGS="${4:-}"
-AV=autodrive-roboracer-avlite-1
-OD=autodrive-roboracer-odometry-1
-BR=autodrive-roboracer-bridge-1
+PROJECT="${COMPOSE_PROJECT_NAME:-autodrive-roboracer}"   # the checkout folder name unless overridden
+AV=$PROJECT-avlite-1
+OD=$PROJECT-odometry-1
+BR=$PROJECT-bridge-1
+MEASURE_ARGS="${MEASURE_ARGS:-}"
 OUT="log/step-trials/$LABEL"
 mkdir -p "$OUT"
 export MSYS_NO_PATHCONV=1
@@ -44,7 +46,7 @@ for i in $(seq 1 "$TRIALS"); do
         sleep 0.5
     done
     log "trial $i/$TRIALS: recording ${SECONDS_PER} s"
-    docker exec "$AV" bash -c "source /opt/ros/humble/setup.bash; /opt/avlite-venv/bin/python /tmp/measure_pose.py /tmp/trial.jsonl --seconds $SECONDS_PER --require-motion-s 25" | tail -1
+    docker exec "$AV" bash -c "source /opt/ros/humble/setup.bash; /opt/avlite-venv/bin/python /tmp/measure_pose.py /tmp/trial.jsonl --seconds $SECONDS_PER --require-motion-s 25 $MEASURE_ARGS" | tail -1
     docker exec "$AV" test -s /tmp/trial.jsonl || true
     docker cp "$AV:/tmp/trial.jsonl" "$OUT/trial-$i.jsonl" 2>/dev/null || log "trial $i: no data"
 done

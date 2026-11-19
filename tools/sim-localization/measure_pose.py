@@ -10,7 +10,8 @@ One JSON line per message: ``k`` is the kind, ``tr`` the recorder's monotonic re
 
     truth   simulator ground truth (x, y, yaw, speed) and its header stamp
     wheel   wheel-odometry pose the localizer predicts from
-    scan    LiDAR scan header stamp only
+    scan    LiDAR scan header stamp; with --scans N every Nth scan also carries its ranges (``r``, mm,
+            -1 for no return) and the angle grid (``a0``, ``da``), enough to replay the localizer offline
     diag    /avlite/controller_diagnostics (estimate, truth, alignment, path progress)
     cmd     /avlite/control_command (steering angle, speed, acceleration)
     lap, collision   the simulator's counters
@@ -62,6 +63,8 @@ def main():
     parser.add_argument("--seconds", type=float, default=240.0)
     parser.add_argument("--auto-reset", action="store_true")
     parser.add_argument("--stuck-s", type=float, default=3.0)
+    parser.add_argument("--scans", type=int, default=0,
+                        help="also record the ranges of every Nth LiDAR scan (0 = stamps only)")
     parser.add_argument("--require-motion-s", type=float, default=0.0,
                         help="abort (exit 3) if the car has not reached 0.5 m/s this many seconds "
                              "after the first truth message; catches a frozen simulator car")
@@ -107,6 +110,17 @@ def main():
         except ValueError:
             pass
 
+    scan_count = [0]
+
+    def on_scan(msg):
+        scan_count[0] += 1
+        if args.scans and scan_count[0] % args.scans == 0:
+            ranges = [int(round(r * 1000)) if math.isfinite(r) and msg.range_min <= r <= msg.range_max else -1
+                      for r in msg.ranges]
+            write("scan", s=stamp(msg), a0=msg.angle_min, da=msg.angle_increment, r=ranges)
+        else:
+            write("scan", s=stamp(msg))
+
     def on_cmd(msg):
         d = msg.drive
         write("cmd", s=stamp(msg), steer=d.steering_angle, v=d.speed, a=d.acceleration)
@@ -114,7 +128,7 @@ def main():
     sub = node.create_subscription
     sub(Odometry, PREFIX + "/odom", on_truth, qos_profile_sensor_data)
     sub(Odometry, PREFIX + "/wheel_odom", on_wheel, 10)
-    sub(LaserScan, PREFIX + "/scan", lambda m: write("scan", s=stamp(m)), qos_profile_sensor_data)
+    sub(LaserScan, PREFIX + "/scan", on_scan, qos_profile_sensor_data)
     sub(String, "/avlite/controller_diagnostics", on_diag, 10)
     sub(AckermannDriveStamped, "/avlite/control_command", on_cmd, 10)
     sub(Int32, PREFIX + "/lap_count", lambda m: write("lap", n=m.data), 10)
