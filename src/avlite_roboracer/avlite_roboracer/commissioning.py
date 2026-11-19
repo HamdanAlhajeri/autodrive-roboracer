@@ -33,6 +33,24 @@ def _after(odom, t):
     return [o for o in odom if o[0] >= t]
 
 
+def _acceleration(odom, response, command_t, commanded, window_s):
+    """Mean acceleration from the first response until the car reaches 90% of the commanded speed
+    (or the window ends while it is still speeding up). None without a usable stretch."""
+    if response is None:
+        return None
+    rising = [response]
+    for sample in _after(odom, response[0]):
+        if sample[0] - command_t > window_s or sample[1] < rising[-1][1] - 0.05:
+            break
+        rising.append(sample)
+        if sample[1] >= 0.9 * commanded:
+            break
+    first, last = rising[0], rising[-1]
+    if last[0] - first[0] < 0.1 or last[1] - first[1] < 0.1:
+        return None
+    return (last[1] - first[1]) / (last[0] - first[0])
+
+
 def analyze(records, moving_mps=0.3, stopped_mps=0.05, response_mps=0.1, window_s=5.0):
     """Find start steps and stop commands; measure latency, deceleration and distance."""
     drive, odom = _series(records)
@@ -44,7 +62,8 @@ def analyze(records, moving_mps=0.3, stopped_mps=0.05, response_mps=0.1, window_
             response = next((o for o in _after(odom, t1)
                              if o[1] >= response_mps and o[0] - t1 <= window_s), None)
             starts.append({"t": t1, "commanded_mps": after,
-                           "latency_s": None if response is None else response[0] - t1})
+                           "latency_s": None if response is None else response[0] - t1,
+                           "acceleration_mps2": _acceleration(odom, response, t1, after, window_s)})
         elif before >= moving_mps and after <= stopped_mps:
             following = [o for o in _after(odom, t1) if o[0] - t1 <= window_s]
             if not following:
@@ -73,11 +92,16 @@ def suggest(starts, stops):
     complete = [s for s in stops if s["stopping_distance_m"] is not None
                 and s.get("deceleration_mps2")]
     latencies = [e["latency_s"] for e in starts + stops if e["latency_s"] is not None]
+    accelerations = [s["acceleration_mps2"] for s in starts if s.get("acceleration_mps2")]
+    # The slowest start is the one the plan may rely on, so the lowest value is suggested.
+    acceleration = min(accelerations) if accelerations else None
     if not complete:
-        return {"measurements.command_latency_s": max(latencies) if latencies else None}
+        return {"measurements.command_latency_s": max(latencies) if latencies else None,
+                "measurements.max_acceleration_mps2": acceleration}
     fastest = max(complete, key=lambda s: s["initial_speed_mps"])
     return {
         "measurements.command_latency_s": max(latencies) if latencies else None,
+        "measurements.max_acceleration_mps2": acceleration,
         "measurements.braking_deceleration_mps2": min(s["deceleration_mps2"] for s in complete),
         "measurements.stop_test_speed_mps": fastest["initial_speed_mps"],
         "measurements.stopping_distance_m": max(s["stopping_distance_m"] for s in complete

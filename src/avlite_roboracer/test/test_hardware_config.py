@@ -234,3 +234,6 @@ def test_commissioning_measures_latency_and_stopping():
     suggestion = result["suggested_profile"]
     assert suggestion["measurements.stop_test_speed_mps"] == pytest.approx(1.0)
     assert math.isfinite(suggestion["measurements.command_latency_s"])
+    # The car speeds up at 2 m/s^2 once it responds (the 0.02 per 10 ms step in the simulation above).
+    assert start["acceleration_mps2"] == pytest.approx(2.0, rel=0.1)
+    assert suggestion["measurements.max_acceleration_mps2"] == pytest.approx(2.0, rel=0.1)

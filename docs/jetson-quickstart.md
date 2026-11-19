@@ -14,6 +14,18 @@ Run `tools/jetson-run.sh` at each stage — it logs everything under `log/jetson
 `bash tools/car-day.sh` is read-only. It checks the install and the F1TENTH bringup, lists every
 profile measurement still missing with how to take it, and says what to do next. Run it any time.
 
+## The short version
+
+Once the hardware profile is complete (`python3 -m avlite_roboracer.doctor` says `23 of 23`) and the stationary tests in
+step 6 pass, steps 7 and 8 below are one command, run with a person at the car holding the dead-man button:
+
+```bash
+bash tools/car-run.sh --start-stack --laps 3 --race-seconds 60
+```
+
+`HANDOVER.md` is the full runbook for an agent: how each profile value is measured and written
+(`python3 -m avlite_roboracer.profile_edit`), what to do when the car stops, and what to report back.
+
 ## Checklist
 
 Work through these in order. **Nothing autonomous moves until step 3 is complete.**

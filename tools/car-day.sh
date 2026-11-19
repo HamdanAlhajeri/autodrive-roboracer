@@ -12,7 +12,9 @@ note() { printf '  [ -- ] %s\n' "$*"; }
 
 echo "== Install"
 [[ "$(uname -m)" == aarch64 ]] && ok "arm64 (Jetson)" || note "not arm64 ($(uname -m)): fine on a laptop, but this is not the car"
-if [[ -f /opt/ros/humble/setup.bash ]]; then ok "ROS 2 Humble present"; else fail "ROS 2 Humble not found: install JetPack 6 ROS first"; fi
+if   [[ -f /opt/ros/jazzy/setup.bash  ]]; then ok "ROS 2 Jazzy present"
+elif [[ -f /opt/ros/humble/setup.bash ]]; then ok "ROS 2 Humble present"
+else fail "no ROS 2 (Humble or Jazzy) under /opt/ros: install it for this JetPack first"; fi
 if [[ -x /opt/avlite-venv/bin/python ]] && /opt/avlite-venv/bin/python -c "import avlite, scipy, shapely" 2>/dev/null; then
     ok "AVLite venv (/opt/avlite-venv) imports avlite, scipy, shapely"
 else
@@ -24,7 +26,7 @@ if command -v ros2 >/dev/null 2>&1; then
         || fail "avlite_roboracer not found by ros2: source ~/roboracer_ws/install/setup.bash"
     ros2 pkg prefix slam_toolbox >/dev/null 2>&1 && ok "slam_toolbox installed" || fail "slam_toolbox missing: run tools/jetson-setup.sh"
 else
-    fail "ros2 not on PATH: source /opt/ros/humble/setup.bash"
+    fail "ros2 not on PATH: source /opt/ros/<distro>/setup.bash (jazzy or humble)"
 fi
 
 echo "== F1TENTH bringup (only if it is running)"

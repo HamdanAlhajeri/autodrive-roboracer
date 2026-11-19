@@ -8,7 +8,7 @@ ARGS=${*:-}
 MSYS_NO_PATHCONV=1 docker run --rm -v "$(cygpath -wa "$ROOT"):/repo:ro" --entrypoint bash \
     autodrive-roboracer-avlite:local -c '
 source /opt/ros/humble/setup.bash
-mkdir -p /tmp/r && for d in src config assets docs scripts tests; do [ -e /repo/$d ] && cp -r /repo/$d /tmp/r/; done; cd /tmp/r
+mkdir -p /tmp/r && for d in src config assets docs scripts tests tools; do [ -e /repo/$d ] && cp -r /repo/$d /tmp/r/; done; cd /tmp/r
 rc=0
 for pkg in avlite_roboracer avlite_autodrive; do
   (cd /tmp/r/src/$pkg && PYTHONPATH=/tmp/r/src/avlite_roboracer:/tmp/r/src/avlite_autodrive:/tmp/r/src/avlite_roboracer/test \
