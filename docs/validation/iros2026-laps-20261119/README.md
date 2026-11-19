@@ -53,6 +53,22 @@ Figures: `laps.png` (trajectory and speed), `planned-driving.png`, `control.png`
 5. The lap graph title reads "practice track" because the plotting script hard-codes it; the data is the IROS 2026
    track.
 
+## Where localization was lost
+
+![Locations of the five losses](localization-loss-locations.png)
+
+| Place | Losses | Where | What the car was doing |
+| --- | --- | --- | --- |
+| A | 3 (62 s, 165 s, 272 s) | x about 15 m, y about -10.3 m, end of the long bottom straight | Driving straight at 1.6 to 2.3 m/s, just before the right-hand corner |
+| B | 2 (216 s, 322 s) | x about -19 m, y about 2 m, left side near the start | Gentle curve at 1.6 to 2.2 m/s |
+
+The same two places repeat on every lap. A lap-0 loss at B did not happen: the loss at B appears on laps 1 and 2 only.
+Both are where the walls run parallel for a long distance, so a scan constrains position across the road but not along
+it; this matches the offline result in `docs/validation/iros2026-track-20261119` (worst stretch near the final
+straight). That is the likely cause, not a proven one: this recording has no logged localization estimate, so the
+error before each loss was not measured. The next step is a run that logs the estimated pose, ground truth and scan
+alignment together.
+
 ## Build notes (for repeating this)
 
 - Needs Unity 2022.3.52f1 and the AutoDRIVE source checkout. The sparse checkout helper
