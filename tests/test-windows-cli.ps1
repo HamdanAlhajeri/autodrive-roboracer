@@ -160,6 +160,11 @@ try {
         Expect-Failure { & $cli map -RecordingDirectory '.\captured run' -Name team-track } 'Existing maps can be overwritten'
         & $cli sketch-map
         Assert ($global:calls[$global:calls.Count - 1] -contains "${fixture}/assets/tracks/sketch_track:/track:ro") 'Sketch assets mount drifted'
+        & $cli sketch-map -Track iros2026
+        $irosCall = $global:calls[$global:calls.Count - 1]
+        Assert ($irosCall -contains "${fixture}/assets/tracks/iros2026:/track:ro") 'IROS 2026 assets were not mounted'
+        Assert ($irosCall -contains '/config/maps/iros2026.json' -and $irosCall -contains '/config/avlite.iros2026.yaml') 'IROS 2026 outputs were not selected'
+        Expect-Failure { & $cli sketch-map -Track unknown } 'Unknown custom track accepted'
         Write-Output 'PASS: offline tools, recording paths with spaces and overwrite protection'
 
         $global:sshCalls.Clear()

@@ -10,6 +10,7 @@ Start with the root [README](../README.md) and [team contribution guide](../CONT
 | Architecture, ROS interfaces, Linux setup, telemetry and troubleshooting | [Setup and recording](avlite-setup.md) |
 | Prepare maps and configure the race planner | [Planned driving](planned-driving.md) |
 | Build, select, test or roll back the custom track | [Sketch track](sketch-track.md) |
+| Replica of the RoboRacer IROS 2026 race track | [IROS 2026 track](iros2026-track.md) |
 | Measure acceleration and braking response | [Response measurements](response-measurements.md) |
 | Record, map, localize and race the Jetson car | [Jetson car](jetson.md) |
 

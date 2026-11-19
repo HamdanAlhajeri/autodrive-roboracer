@@ -1,5 +1,6 @@
 // Copy into Assets/Editor/AutoDRIVEIntegration in the AutoDRIVE Unity source project.
 // Batch entry points: AutoDriveTrackTools.SketchTrackBuilder.CreateScene / BuildPlayer.
+// Optional -trackId sketch|iros2026 selects the track; sketch is the default.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -20,13 +21,58 @@ namespace AutoDriveTrackTools
     public static class SketchTrackBuilder
     {
         const string SourceScene = "Assets/Scenes/RoboRacer - Sim Racing.unity";
-        public const string ScenePath = "Assets/Scenes/RoboRacer - Sketch Track.unity";
-        const string AssetRoot = "Assets/Tracks/SketchTrack";
+        // Internal object names stay the same for every track: the lap timer and smoke
+        // check identify the road and barriers by these names.
         const string BarrierName = "Sketch Track Barrier";
         // The stock scanner is at 0.156 m, above the ZIP's 0.1524 m tubes.
         // Stretch only Y so the physical XY corridor and AVLite map are unchanged.
         const float BarrierHeightScale = 2f;
         static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
+
+        /// <summary>
+        /// Files, labels and view settings of one custom track. Every track uses the
+        /// same OBJ layout, 0.1524 m tubes and AVLite plan format.
+        /// </summary>
+        sealed class TrackSpec
+        {
+            public string Id, Label, UnityFolder, Mesh;
+            public float CameraSize;
+            public Color Road, Barrier;
+        }
+
+        static TrackSpec selectedTrack;
+
+        /// <summary>
+        /// Return the track named by -trackId, or the sketch track when it is absent.
+        /// An unknown name stops the build instead of silently using another track.
+        /// </summary>
+        static TrackSpec Track
+        {
+            get
+            {
+                if (selectedTrack != null) return selectedTrack;
+                var args = Environment.GetCommandLineArgs();
+                int index = Array.IndexOf(args, "-trackId");
+                string id = index < 0 || index + 1 == args.Length ? "sketch" : args[index + 1];
+                if (id == "sketch")
+                    selectedTrack = new TrackSpec {
+                        Id = "sketch", Label = "Sketch", UnityFolder = "SketchTrack",
+                        Mesh = "assets/tracks/sketch_track/sketch_track.obj", CameraSize = 18.5f,
+                        Road = new Color(0.11f, 0.12f, 0.14f), Barrier = new Color(0.72f, 0.035f, 0.025f) };
+                else if (id == "iros2026")
+                    // About 44 m along Unity Z, so a larger top-down view than the sketch.
+                    selectedTrack = new TrackSpec {
+                        Id = "iros2026", Label = "IROS 2026", UnityFolder = "IROS2026Track",
+                        Mesh = "assets/tracks/iros2026/iros2026_track.obj", CameraSize = 24f,
+                        Road = new Color(0.45f, 0.45f, 0.43f), Barrier = new Color(0.9f, 0.7f, 0.05f) };
+                else
+                    throw new ArgumentException("Unknown -trackId " + id);
+                return selectedTrack;
+            }
+        }
+
+        public static string ScenePath => "Assets/Scenes/RoboRacer - " + Track.Label + " Track.unity";
+        static string AssetRoot => "Assets/Tracks/" + Track.UnityFolder;
 
         /// <summary>
         /// Read the path following a required command-line flag and make it absolute.
@@ -215,7 +261,7 @@ namespace AutoDriveTrackTools
         public static void CreateScene()
         {
             var source = Argument("-sketchSource");
-            var plan = JObject.Parse(File.ReadAllText(Path.Combine(source, "config/maps/sketch.plan.json")));
+            var plan = JObject.Parse(File.ReadAllText(Path.Combine(source, "config/maps/" + Track.Id + ".plan.json")));
             var route = new Route(plan);
             Directory.CreateDirectory(AssetRoot + "/Generated");
             AssetDatabase.Refresh();
@@ -236,10 +282,10 @@ namespace AutoDriveTrackTools
             infrastructure.SetActive(false);
             floor.SetActive(false);
 
-            var track = new GameObject("Sketch Track");
-            var meshes = ReadMeshes(Path.Combine(source, "assets/tracks/sketch_track/sketch_track.obj"));
-            var roadMaterial = MakeMaterial("Sketch Asphalt", new Color(0.11f, 0.12f, 0.14f));
-            var barrierMaterial = MakeMaterial("Sketch Barrier", new Color(0.72f, 0.035f, 0.025f));
+            var track = new GameObject(Track.Label + " Track");
+            var meshes = ReadMeshes(Path.Combine(source, Track.Mesh));
+            var roadMaterial = MakeMaterial("Sketch Asphalt", Track.Road);
+            var barrierMaterial = MakeMaterial("Sketch Barrier", Track.Barrier);
             foreach (var item in meshes)
             {
                 var group = new GameObject(item.Key);
@@ -319,14 +365,14 @@ namespace AutoDriveTrackTools
             camera.transform.SetPositionAndRotation(new Vector3(0, 32, 0), Quaternion.Euler(90, 0, 0));
             var cameraComponent = camera.GetComponentInChildren<Camera>(true);
             cameraComponent.orthographic = true;
-            cameraComponent.orthographicSize = 18.5f;
+            cameraComponent.orthographicSize = Track.CameraSize;
             var switcher = InScene<CameraSwitch>(scene).Single();
             switcher.Cameras = new[] { camera }.Concat(switcher.Cameras.Where(c => c != camera)).ToArray();
             foreach (var item in switcher.Cameras) item.SetActive(item == camera);
-            switcher.Label.text = "Sketch Track";
+            switcher.Label.text = Track.Label + " Track";
 
             Lightmapping.Clear();
-            PlayerSettings.productName = "AutoDRIVE Simulator - Sketch Track";
+            PlayerSettings.productName = "AutoDRIVE Simulator - " + Track.Label + " Track";
             PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.Mono2x);
             PlayerSettings.defaultIsNativeResolution = false;
             PlayerSettings.defaultScreenWidth = 960;
@@ -336,7 +382,7 @@ namespace AutoDriveTrackTools
             if (!EditorSceneManager.SaveScene(scene, ScenePath)) throw new IOException("Scene save failed");
             AssetDatabase.SaveAssets();
             var report = new JObject {
-                ["scene"] = ScenePath, ["plan_map_sha256"] = plan["map_sha256"],
+                ["scene"] = ScenePath, ["track"] = Track.Id, ["plan_map_sha256"] = plan["map_sha256"],
                 ["route_length_m"] = route.Length, ["mesh_objects"] = meshes.Count,
                 ["checkpoint_count"] = lap.Checkpoints.Length, ["lidar_height_m"] = lidarHeight,
                 ["barrier_height_m"] = 0.1524f * BarrierHeightScale,
@@ -347,7 +393,7 @@ namespace AutoDriveTrackTools
                     "road raycasts every 0.25 m", "checkpoint wall intersections", "LiDAR height within barriers"),
                 ["driving_tested"] = false
             };
-            File.WriteAllText("sketch-scene-validation.json", report.ToString());
+            File.WriteAllText(Track.Id + "-scene-validation.json", report.ToString());
             Debug.Log("SKETCH_SCENE_READY " + report.ToString(Newtonsoft.Json.Formatting.None));
         }
 

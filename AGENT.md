@@ -39,7 +39,7 @@ AGENT.md, HANDOVER.md        you are here; the Jetson runbook
 README.md, CONTRIBUTING.md   overview; where changes belong
 avlite.ps1                   the one Windows entry point (see "Commands")
 config/                      all settings (see "Config files")
-assets/tracks/               custom track meshes and metadata (sketch; the IROS 2026 track is on a branch, see below)
+assets/tracks/               custom track meshes and metadata (sketch, IROS 2026)
 docker/, docker-compose*.yml the pinned AVLite image (Dockerfile.avlite) and services; docker/legacy is old
 scripts/windows/             the PowerShell implementations behind avlite.ps1
 scripts/jetson/roboracer     small Jetson launcher script
@@ -96,6 +96,7 @@ local-reports/               local-only Word reports; git-ignored
 | `driving.yaml` | Shared speed and throttle ceilings, loaded by `avlite.yaml` and `actuator.yaml`. |
 | `actuator.yaml` | Actuator limits and timeout. |
 | `avlite.sketch.yaml`, `maps/sketch*.json`, `maps/practice.json` | The custom sketch track profile and maps; the stock practice track map. |
+| `avlite.iros2026.yaml`, `maps/iros2026*.json` | The IROS 2026 replica's ICP profile and map (see below). |
 | `roboracer/hardware.yaml` | The car's hardware profile. Mostly `null` until measured: this is what blocks autonomous motion. |
 | `roboracer/race.yaml` | Mapping laps, planning limits, localization source, racing laps. |
 | `roboracer/sim_profile.yaml`, `slam_toolbox.yaml` | Same schema as `hardware.yaml` for the simulator; SLAM Toolbox settings. |
@@ -133,7 +134,7 @@ builds custom tracks in a Unity checkout.
 
 - `docs/commands.md`, `docs/avlite-setup.md`, `docs/planned-driving.md`: running and tuning the simulator.
 - `docs/jetson.md`, `docs/jetson-quickstart.md`, `docs/plans/`: the car (design, short version, checklists).
-- `docs/sketch-track.md`: building the custom Unity track.
+- `docs/sketch-track.md`, `docs/iros2026-track.md`: building the custom Unity tracks.
 - `docs/validation/`: every measurement write-up, newest in `localization-at-speed-20261118/`.
 - `docs/research/localization-resources.txt`, `docs/history/`: background.
 
@@ -167,15 +168,14 @@ Open and needing an owner decision: the planner margin at the tight corner and t
 - Real-car readiness: software ready to try; car not ready (hardware profile 0 of 23 set, stationary tests not done).
   Thresholds in `localization:` are simulator starting values, not measurements.
 
-## IROS 2026 track (not in `main`)
+## IROS 2026 track
 
-A simulator copy of the RoboRacer IROS 2026 track was built by another agent and delivered as a git bundle
-(branch `feat/iros2026-track`; adds `assets/tracks/iros2026`, `config/maps/iros2026.json`,
-`config/avlite.iros2026.yaml`, `-Track iros2026` for `sketch-map`, `sketch-build`, `sketch-test`). Python tests and the
-offline map check pass when merged with this branch. It has NOT been built in Unity or driven. Two things to fix first:
-its profile uses `source: ground_truth`, so combining it with ICP needs a `start_pose_world` for this track (the sketch
-value is wrong here; the spawn is in `iros2026.validation.json`), and Unity 2022.3.52f1 plus a Unity source checkout
-are required to build it.
+A simulator copy of the RoboRacer IROS 2026 track, traced from the organisers' map: `assets/tracks/iros2026`,
+`config/maps/iros2026.json`, `config/avlite.iros2026.yaml`, and `-Track iros2026` for `sketch-map`, `sketch-build`,
+`sketch-test`. Guide: `docs/iros2026-track.md`. The profile uses ICP (`source: avlite`, `reference: map_hits`): the
+converter writes this track's spawn into `start_pose_world` and adds synthetic `observed_hits` along the pipe surfaces.
+Offline, ICP held a full simulated lap (`docs/validation/iros2026-track-20261119/`). It has NOT been built in Unity or
+driven; that needs Unity 2022.3.52f1 and a Unity source checkout.
 
 ## Gotchas
 

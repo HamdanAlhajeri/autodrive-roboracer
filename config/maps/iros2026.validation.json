@@ -1,0 +1,29 @@
+{
+  "status": "offline_validated_not_driven",
+  "length_m": 199.3568477351066,
+  "min_planned_speed_mps": 1.6901292127481367,
+  "max_planned_speed_mps": 2.5,
+  "map_sha256": "c0ea9c6bfaa73afa5416e45c81b49b056236877e677e52f4cfa6167d0f65d967",
+  "rear_axle_spawn_unity_xz_m": [
+    3.065313558132988,
+    -20.32740088334516
+  ],
+  "spawn_unity_yaw_degrees": 75.02617721447459,
+  "spawn_world_pose": [
+    -20.32740088334516,
+    -3.065313558132988,
+    -1.3094538175773294
+  ],
+  "spawn_note": "Align the rear axle, not the vehicle root; settle wheels at Y=0.",
+  "required_optimizer_step_limit_m": 0.25,
+  "checks": [
+    "simple nested map",
+    "barrier radius and sampling allowance",
+    "complete reference and planned laps",
+    "steering limit",
+    "lateral acceleration",
+    "acceleration/braking including closing segment",
+    "0.324 m axle with 0.29 m envelope radius sampled every 0.025 m",
+    "original physical barrier clearance"
+  ]
+}
