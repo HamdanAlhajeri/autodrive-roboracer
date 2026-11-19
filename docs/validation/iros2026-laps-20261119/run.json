@@ -1,0 +1,15 @@
+﻿{
+    "requested_seconds":  400,
+    "wait_for_odometry_seconds":  30,
+    "track_map":  true,
+    "response_data":  false,
+    "working_tree_modified":  true,
+    "stop_after_lap":  false,
+    "bridge_container_id":  "09bec2fc040fa2a5a9c66a0081c97ee25b73a2e3df5518c748185beceefaeb9d",
+    "label":  "iros2026-commissioning",
+    "stop_on_incident":  true,
+    "started_utc":  "2026-11-19T17:40:54.6906995Z",
+    "git_commit":  "f7afb1a9636157a6c437b114dd81eefaff919018",
+    "config_note":  "Snapshot of files on disk; restart controllers after edits before recording.",
+    "requested_laps":  3
+}

@@ -1,0 +1,10 @@
+{
+  "passed": true,
+  "spawn_error_m": 0.0006101774,
+  "grounded_wheels": 4,
+  "finite_lidar_hits": 1070,
+  "first_lap": 1,
+  "second_lap": 2,
+  "reset_error_m": 9.61096E-06,
+  "failure": ""
+}

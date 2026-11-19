@@ -439,10 +439,18 @@ namespace AutoDriveTrackTools
             AssetDatabase.SaveAssets();
             var output = Argument("-sketchBuild");
             Directory.CreateDirectory(Path.GetDirectoryName(output));
-            var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions {
+            // The OpenXR package refuses the first build after its settings asset is imported
+            // ("found in project but not yet loaded. Please build again"). Load those assets
+            // up front and, if the first attempt still fails, build once more in this session.
+            foreach (var guid in AssetDatabase.FindAssets("t:Object", new[] { "Assets/XR" }))
+                AssetDatabase.LoadAllAssetsAtPath(AssetDatabase.GUIDToAssetPath(guid));
+            var options = new BuildPlayerOptions {
                 scenes = new[] { ScenePath }, locationPathName = output,
                 target = BuildTarget.StandaloneWindows64, options = BuildOptions.None
-            });
+            };
+            var report = BuildPipeline.BuildPlayer(options);
+            if (report.summary.result != BuildResult.Succeeded)
+                report = BuildPipeline.BuildPlayer(options);
             if (report.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException("Sketch build failed: " + report.summary.result);
             Debug.Log("SKETCH_BUILD_READY " + output);

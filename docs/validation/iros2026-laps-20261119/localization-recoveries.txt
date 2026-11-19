@@ -1,0 +1,5 @@
+﻿2026-11-19T17:41:58.702369619Z INFO:root:Localization lost (alignment 0.35): searched 3.0 m around the estimate in 1.42 s, found a fit 1.6 m away
+2026-11-19T17:43:41.939190725Z INFO:root:Localization lost (alignment 0.43): searched 3.0 m around the estimate in 1.32 s, found a fit 1.4 m away
+2026-11-19T17:44:33.531233217Z INFO:root:Localization lost (alignment 0.32): searched 3.0 m around the estimate in 1.26 s, found a fit 1.4 m away
+2026-11-19T17:45:28.727490947Z INFO:root:Localization lost (alignment 0.39): searched 3.0 m around the estimate in 1.17 s, found a fit 1.6 m away
+2026-11-19T17:46:19.364629557Z INFO:root:Localization lost (alignment 0.45): searched 3.0 m around the estimate in 1.18 s, found a fit 1.5 m away
