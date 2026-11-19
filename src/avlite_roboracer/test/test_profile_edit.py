@@ -10,8 +10,9 @@ from avlite_roboracer.profile import AUTONOMY_REQUIRED
 from avlite_roboracer.profile_edit import (
     LOCALIZATION_STARTING_POINT, commissioning_updates, main, parse_tf_echo, parse_value,
     pressed_button, set_values)
+from roboracer_fixtures import PROFILE_PATH
 
-REPO_PROFILE = Path(__file__).resolve().parents[3] / "config" / "roboracer" / "hardware.yaml"
+REPO_PROFILE = PROFILE_PATH  # the repository profile with its measurements cleared
 
 # A complete, valid commissioning of a small car (invented numbers, for the checks only).
 COMPLETE = {

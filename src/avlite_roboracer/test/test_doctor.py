@@ -4,7 +4,7 @@ import yaml
 
 from avlite_roboracer.doctor import HOW, inspect, main, render
 from avlite_roboracer.profile import AUTONOMY_REQUIRED
-from roboracer_fixtures import commissioned_data
+from roboracer_fixtures import PROFILE_PATH, commissioned_data
 
 
 def write(tmp_path, data):
@@ -18,7 +18,7 @@ def test_every_required_measurement_has_a_how_to():
 
 
 def test_committed_profile_is_not_commissioned_and_every_gap_is_explained():
-    report = inspect(__import__("avlite_roboracer.doctor", fromlist=["x"]).DEFAULT_PROFILE)
+    report = inspect(PROFILE_PATH)
     assert report["loaded"] and not report["commissioned"]
     assert all(item["how"] for item in report["missing"])
     assert "NOT commissioned" in render(report)

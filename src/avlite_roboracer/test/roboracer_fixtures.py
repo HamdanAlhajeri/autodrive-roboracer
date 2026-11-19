@@ -2,6 +2,8 @@
 
 import copy
 import math
+import shutil
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -9,10 +11,25 @@ import yaml
 
 from avlite_roboracer.geometry import compose, inverse
 from avlite_roboracer.occupancy import FREE, OCCUPIED, UNKNOWN, OccupancyGrid
-from avlite_roboracer.profile import HardwareProfile
+from avlite_roboracer.profile import AUTONOMY_REQUIRED, HardwareProfile
+from avlite_roboracer.profile_edit import set_values
 
 ROOT = Path(__file__).resolve().parents[3]
-PROFILE_PATH = ROOT / "config" / "roboracer" / "hardware.yaml"
+REPO_PROFILE = ROOT / "config" / "roboracer" / "hardware.yaml"
+
+
+def _blank_profile():
+    """The repository profile with every autonomy measurement cleared, as before commissioning.
+
+    The tests assume that state; the real file gains measured values on the car.
+    """
+    path = Path(tempfile.mkdtemp(prefix="roboracer-profile-")) / "hardware.yaml"
+    shutil.copy(REPO_PROFILE, path)
+    set_values(path, {key: None for key in AUTONOMY_REQUIRED})
+    return path
+
+
+PROFILE_PATH = _blank_profile()
 
 MEASURED = {
     "mounts": {"laser": {"x_m": 0.25, "y_m": 0.0, "yaw_rad": 0.0}},
