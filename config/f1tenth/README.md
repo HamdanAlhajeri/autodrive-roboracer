@@ -27,8 +27,10 @@ The install and build copies in the workspace are symlinks to that source file.
 
 ## Known open items
 
-- `speed_to_erpm_gain: 4614.0`. If the motor drives opposite to the command, the direction is wrong in odometry too.
-  The fix (negate the gain, or reverse the motor direction in VESC Tool) is not applied. If the pole count or
-  wheel and gear settings in the VESC change, recompute the gain.
+- `speed_to_erpm_gain: -4614.0` (stock 4614.0). The motor ran opposite to the command after the VESC recalibration,
+  so the gain is negated: the command and the odometry flip together. This is proposed and not yet confirmed on the
+  car; it counts as fixed only when the real motion is forward and the odometry vx is positive. If the direction is
+  later fixed in VESC Tool or by swapping two phase wires, set it back to 4614.0. If the pole count or wheel and
+  gear settings in the VESC change, recompute the gain.
 - With the offset at 0.420 and the driver limits 0.15 and 0.85, the reachable steering is about +0.222 rad left and
   -0.354 rad right, so `steering.max_angle_rad` is 0.22.

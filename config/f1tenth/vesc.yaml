@@ -2,7 +2,11 @@
   # general parameters shared by all vesc-related nodes
   ros__parameters:
     # erpm (electrical rpm) = speed_to_erpm_gain * speed (meters / second) + speed_to_erpm_offset
-    speed_to_erpm_gain: 4614.0
+    # NEGATIVE because this car's motor direction is reversed (a forward command drove the car backward on
+    # 19 Nov 2026). The same gain is used for the command (erpm = gain * speed) and for the odometry
+    # (speed = erpm / gain), so both flip together. If the direction is later fixed in VESC Tool or by swapping
+    # two motor phase wires, set this back to 4614.0.
+    speed_to_erpm_gain: -4614.0
     speed_to_erpm_offset: 0.0
 
     # servo value (0 to 1) =  steering_angle_to_servo_gain * steering angle (radians) + steering_angle_to_servo_offset
