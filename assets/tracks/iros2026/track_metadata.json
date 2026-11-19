@@ -83,6 +83,7 @@
   "map_boundary_pairing": "monotone_nearest",
   "map_reference_seed": "smoothed_midline",
   "map_spacing_m": 0.05,
+  "map_observed_hits_spacing_m": 0.03,
   "approximate": true,
   "unity_runtime_tested": false,
   "objects": {

@@ -4,8 +4,10 @@ A replica of the RoboRacer IROS 2026 race track, built from the organisers' publ
 map. Asset details, rule checks and limitations are in
 [`assets/tracks/iros2026`](../assets/tracks/iros2026/README.md).
 
-**Status, 18 November 2026:** the mesh, AVLite map and a 2.5 m/s commissioning plan
-pass offline validation. The Unity scene has not been built and no lap has been driven.
+**Status, 19 November 2026:** the mesh, AVLite map, a 2.5 m/s commissioning plan and
+the ICP localization setup pass offline validation
+([write-up](validation/iros2026-track-20261119/README.md)). The Unity scene has not been
+built and no lap has been driven.
 
 | | |
 | --- | --- |
@@ -21,7 +23,7 @@ pass offline validation. The Unity scene has not been built and no lap has been 
 | `assets/tracks/iros2026/*` | OBJ/MTL, metadata, preview and generator |
 | `config/maps/iros2026.json` | AVLite boundaries and seed route in world metres |
 | `config/maps/iros2026.validation.json` | Offline checks, planned speed range and rear-axle spawn pose |
-| `config/avlite.iros2026.yaml` | Commissioning profile, copied to `avlite.yaml` when activating |
+| `config/avlite.iros2026.yaml` | Commissioning profile, copied to `avlite.yaml` when activating. ICP (`source: avlite`, `reference: map_hits`) starting at this track's spawn |
 | `config/maps/iros2026.png`, `.plan.json` | Generated preview and plan (ignored by Git; recreate with `sketch-map`) |
 
 ## Build and check the simulator
@@ -80,6 +82,9 @@ output is unchanged.
   A fixed offset from the island would cross the thin separators.
 - `map_spacing_m: 0.05` samples the map every 5 cm so chords do not cut the rounded
   pipe corners.
+- `map_observed_hits_spacing_m: 0.03` adds `observed_hits` along the pipe surfaces as
+  the ICP reference, since there is no recorded lap. The converter also writes the
+  track's spawn into `localization.start_pose_world` when the base config uses ICP.
 
 Validation sweeps the 0.324 m axle with a 0.29 m envelope every 0.025 m against the
 original pipe geometry, as for the sketch track.

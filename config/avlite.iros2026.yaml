@@ -1,11 +1,25 @@
 # RoboRacer IROS 2026 commissioning. Use only with the matching custom Unity build.
 # Before driving, set driving.yaml to speed_mps: 2.5 and max_throttle: 0.2.
+# localization.start_pose_world is this track's spawn (rear axle, world frame).
 shared_settings: driving.yaml
 driving_mode: planned
 localization:
-  source: ground_truth
+  source: avlite
+  start_pose_world:
+  - -20.3274
+  - -3.0653
+  - -1.3095
+  reference: map_hits
+  recovery_radius_m: 3.0
+  odometry_max_accel_mps2: 0
+  odometry_limit_below_mps: 3.0
+  pose_lead_s: 0
   profile: roboracer/sim_profile.yaml
   slam_params: roboracer/slam_toolbox.yaml
+visualization:
+  pose_view: true
+  port: 8765
+  error_alert_m: 0.5
 planning:
   map_path: maps/iros2026.json
   max_velocity_mps: ${speed_mps}

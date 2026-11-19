@@ -60,6 +60,22 @@ def road_polygons(metadata, extra_inset=0.0):
     return outer, inner, Polygon(outer.exterior.coords, [inner.exterior.coords])
 
 
+def pipe_surface_hits(metadata, spacing):
+    """Points along the road-facing pipe surfaces, as LiDAR at mount height would see them.
+
+    A generated track has no recorded lap, so this stands in for ``observed_hits`` and lets
+    ``localization.reference: map_hits`` (ICP against the map) work. The Unity builder
+    stretches the tubes vertically about their centre line, so at LiDAR height the surface
+    is one tube radius from the centreline, which is the physical road edge.
+    """
+    _, _, physical = road_polygons(metadata)
+    points = []
+    for ring in (physical.exterior, *physical.interiors):
+        distances = np.arange(0, ring.length, spacing)
+        points.append(np.array([ring.interpolate(d).coords[0] for d in distances]))
+    return np.vstack(points)
+
+
 def arc_length_pairing(inner, outer, spacing):
     """Pair equal arc-length fractions of both loops at the best-aligned phase offset."""
     count = int(np.ceil(max(inner.length, outer.length) / spacing))
@@ -182,6 +198,10 @@ def build_sketch_map(metadata, spacing=0.1):
         "boundary_approximation_allowance_m": 0.01,
         **seed_note, "unity_runtime_tested": False,
     }
+    hit_spacing = metadata.get("map_observed_hits_spacing_m")
+    if hit_spacing:
+        data["observed_hits"] = pipe_surface_hits(metadata, hit_spacing).round(5).tolist()
+        data["observed_hits_source"] = "pipe surfaces from track metadata, not a recorded lap"
     _, _, mapped = validate_map(data)
     _, _, physical = road_polygons(metadata)
     if not physical.buffer(1e-7).covers(mapped):
@@ -252,13 +272,30 @@ def main():
     plot_map(data, args.output.with_suffix(".png"), prepared.artifact)
     xy = prepared.path.at(0)
     tangent = prepared.path.at(0.1) - xy
+    heading = float(np.arctan2(tangent[1], tangent[0]))
+    localization = profile.get("localization") or {}
+    if localization.get("source") == "avlite":
+        # ICP starts from the spawn (rear axle, world frame) that the Unity builder uses.
+        # The base profile's value belongs to another track.
+        if localization.get("reference") == "map_hits" and not data.get("observed_hits"):
+            raise ValueError("localization.reference: map_hits needs map_observed_hits_spacing_m "
+                             "in the track metadata")
+        localization["start_pose_world"] = [round(float(xy[0]), 4), round(float(xy[1]), 4),
+                                            round(heading, 4)]
+        args.profile_output.write_text(
+            f"# {metadata.get('name', 'Sketch track')} commissioning."
+            " Use only with the matching custom Unity build.\n"
+            "# Before driving, set driving.yaml to speed_mps: 2.5 and max_throttle: 0.2.\n"
+            "# localization.start_pose_world is this track's spawn (rear axle, world frame).\n"
+            + yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
     report = {
         "status": "offline_validated_not_driven", "length_m": prepared.path.length,
         "min_planned_speed_mps": min(prepared.artifact["velocity"]),
         "max_planned_speed_mps": max(prepared.artifact["velocity"]),
         "map_sha256": prepared.artifact["map_sha256"],
         "rear_axle_spawn_unity_xz_m": [-float(xy[1]), float(xy[0])],
-        "spawn_unity_yaw_degrees": -float(np.degrees(np.arctan2(tangent[1], tangent[0]))),
+        "spawn_unity_yaw_degrees": -float(np.degrees(heading)),
+        "spawn_world_pose": [float(xy[0]), float(xy[1]), heading],
         "spawn_note": "Align the rear axle, not the vehicle root; settle wheels at Y=0.",
         "required_optimizer_step_limit_m": 0.25,
         "checks": ["simple nested map", "barrier radius and sampling allowance",

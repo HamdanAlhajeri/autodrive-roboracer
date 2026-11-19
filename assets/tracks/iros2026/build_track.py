@@ -382,6 +382,8 @@ def main():
         "map_boundary_pairing": "monotone_nearest", "map_reference_seed": "smoothed_midline",
         # Pipe corners have ~9 cm inset radii; 5 cm samples keep map chords off the pipes.
         "map_spacing_m": 0.05,
+        # Synthetic LiDAR reference for ICP (localization.reference: map_hits).
+        "map_observed_hits_spacing_m": 0.03,
         "approximate": True, "unity_runtime_tested": False, "objects": checks,
         "track_boundaries": {"outer_xz": as_xz["outer_line"].round(6).tolist(),
                              "inner_xz": as_xz["inner_line"].round(6).tolist()},
