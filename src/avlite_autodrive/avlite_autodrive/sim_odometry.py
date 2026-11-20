@@ -92,11 +92,31 @@ class WheelOdometry:
     because the rear wheels slip in corners.
     """
 
-    def __init__(self, wheel_radius, speed_scale=1.0, yaw_rate_bias=0.0, wrapped=False):
+    def __init__(self, wheel_radius, speed_scale=1.0, yaw_rate_bias=0.0, wrapped=False, slip_gain=0.0,
+                 imu_fusion=False, fusion_gain=3.0, fusion_accel_ref=0.3):
         if not (math.isfinite(wheel_radius) and wheel_radius > 0):
             raise ValueError("wheel radius must be positive")
+        if not (math.isfinite(slip_gain) and 0.0 <= slip_gain <= 0.1):
+            raise ValueError("slip gain must be between 0 and 0.1 s^2/m")
         self.wheel_radius = wheel_radius
         self.speed_scale = speed_scale
+        # Slip correction: the distance scale becomes speed_scale - slip_gain * acceleration, so braking
+        # (negative acceleration, wheels slip and under-read) lengthens the distance and accelerating
+        # shortens it. Acceleration comes from the encoder speed itself, low-pass filtered.
+        self.slip_gain = slip_gain
+        self.filtered_speed = None
+        self.filtered_accel = 0.0
+        # IMU fusion: speed is integrated from the forward acceleration and pulled toward the scaled wheel
+        # speed with gain fusion_gain / (1 + (a / fusion_accel_ref)^2) per second, where a is the filtered
+        # acceleration. While cruising the wheels hold the speed; while braking or accelerating (wheels
+        # slip) the IMU carries it. Needs accel passed to update(); without it the wheels are used alone.
+        if imu_fusion and not (fusion_gain > 0 and fusion_accel_ref > 0):
+            raise ValueError("fusion gain and acceleration reference must be positive")
+        self.imu_fusion = imu_fusion
+        self.fusion_gain = fusion_gain
+        self.fusion_accel_ref = fusion_accel_ref
+        self.fused_speed = None
+        self.fused_accel = 0.0
         self.yaw_rate_bias = yaw_rate_bias
         self.wrapped = wrapped  # True if encoders report angles in [0, 2*pi) or (-pi, pi]
         self.time_scale = 1.0   # simulated seconds per stamp second (see ClockRate)
@@ -105,7 +125,7 @@ class WheelOdometry:
         self.angles = None
         self.time = None
 
-    def update(self, left, right, yaw_rate, t):
+    def update(self, left, right, yaw_rate, t, accel=None):
         """Advance to time t (s) with wheel angles (rad) and yaw rate (rad/s).
 
         Return True when the pose advanced. The first sample, a repeated or backwards
@@ -121,7 +141,29 @@ class WheelOdometry:
         dt = (t - self.time) * self.time_scale  # simulated time: speed and gyro rate are per sim second
         delta = angle_delta if self.wrapped else (lambda a, b: a - b)
         rotation = (delta(left, self.angles[0]) + delta(right, self.angles[1])) / 2
-        distance = rotation * self.wheel_radius * self.speed_scale
+        raw_distance = rotation * self.wheel_radius
+        scale = self.speed_scale
+        if self.slip_gain > 0.0:
+            raw_speed = raw_distance / dt
+            if self.filtered_speed is None:
+                self.filtered_speed = raw_speed
+            else:
+                blend = min(1.0, dt / 0.15)
+                previous = self.filtered_speed
+                self.filtered_speed += blend * (raw_speed - previous)
+                accel = (self.filtered_speed - previous) / dt
+                self.filtered_accel += min(1.0, dt / 0.2) * (accel - self.filtered_accel)
+            scale -= self.slip_gain * max(-6.0, min(3.0, self.filtered_accel))
+        distance = raw_distance * scale
+        if self.imu_fusion and accel is not None and math.isfinite(accel):
+            wheel_speed = distance / dt
+            if self.fused_speed is None or dt > 0.5:  # first sample or a gap (respawn): restart from the wheels
+                self.fused_speed, self.fused_accel = wheel_speed, 0.0
+            else:
+                self.fused_accel += min(1.0, dt / 0.3) * (accel - self.fused_accel)
+                gain = self.fusion_gain / (1.0 + (self.fused_accel / self.fusion_accel_ref) ** 2)
+                self.fused_speed += accel * dt + min(1.0, gain * dt) * (wheel_speed - self.fused_speed)
+            distance = self.fused_speed * dt
         self.yaw_rate = yaw_rate + self.yaw_rate_bias
         # Midpoint heading keeps a constant turn on its arc better than Euler steps.
         mid = self.yaw + 0.5 * self.yaw_rate * dt
@@ -149,6 +191,12 @@ def main(argv=None):
                         help="Rear wheel radius in metres; calibrate against ground truth")
     parser.add_argument("--speed-scale", type=float, default=1.0,
                         help="Multiply encoder distance, e.g. 1.02 for a 2%% error")
+    parser.add_argument("--slip-gain", type=float, default=0.0,
+                        help="Slip correction in s^2/m: distance scale = speed-scale - gain x acceleration "
+                             "(0 = off, e.g. 0.025 when braking under-reads the wheels)")
+    parser.add_argument("--imu-fusion", action="store_true",
+                        help="Carry the speed with the IMU forward acceleration while braking or accelerating "
+                             "(wheels under-read then), and use the scaled wheels while cruising")
     parser.add_argument("--yaw-rate-bias", type=float, default=0.0,
                         help="Add to the gyro yaw rate in rad/s, e.g. 0.004")
     parser.add_argument("--wrapped-encoders", action="store_true",
@@ -162,7 +210,7 @@ def main(argv=None):
         parser.error("--clock-rate must be 'auto' or a positive number")
     clock = ClockRate()
     odometry = WheelOdometry(options.wheel_radius, options.speed_scale, options.yaw_rate_bias,
-                             options.wrapped_encoders)
+                             options.wrapped_encoders, options.slip_gain, options.imu_fusion)
     rclpy.init(args=ros_args)
     node = Node("avlite_sim_odometry")
     odom_pub = node.create_publisher(Odometry, ODOM_TOPIC, 10)
@@ -170,6 +218,7 @@ def main(argv=None):
     tf_pub = TransformBroadcaster(node)
     static_pub = StaticTransformBroadcaster(node)
     latest = {"left": None, "right": None, "yaw_rate": None}
+    imu_accel = {"x": None}
     origin = {"world": None, "logged": False}
     clock_log = {"t": 0}
 
@@ -188,7 +237,7 @@ def main(argv=None):
             stamp = msg.header.stamp
             odometry.time_scale = fixed_rate if fixed_rate is not None else clock.rate
             if odometry.update(latest["left"], latest["right"], latest["yaw_rate"],
-                               stamp.sec + stamp.nanosec * 1e-9):
+                               stamp.sec + stamp.nanosec * 1e-9, imu_accel["x"]):
                 if not origin["logged"] and origin["world"] is not None:
                     origin["logged"] = True
                     x, y, yaw = origin["world"]
@@ -217,6 +266,7 @@ def main(argv=None):
 
     def on_imu(msg):
         latest["yaw_rate"] = float(msg.angular_velocity.z)
+        imu_accel["x"] = float(msg.linear_acceleration.x)
 
     def on_scan(msg):
         msg.header.frame_id = "laser"

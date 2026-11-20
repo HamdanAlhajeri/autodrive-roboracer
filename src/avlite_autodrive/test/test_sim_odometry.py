@@ -7,16 +7,16 @@ from avlite_autodrive.sim_odometry import ClockRate, WheelOdometry, angle_delta
 R = 0.05
 
 
-def drive(odometry, speed, yaw_rate, seconds, rate_hz=50, start=(0.0, 0.0, 0.0)):
-    """Feed cumulative wheel angles for a constant speed and turn rate."""
+def drive(odometry, speed, yaw_rate, seconds, rate_hz=50, start=(0.0, 0.0, 0.0), accel=None):
+    """Feed cumulative wheel angles for a constant speed and turn rate (accel: the IMU reading, if any)."""
     left = right = 0.0
     t = 0.0
-    odometry.update(left, right, yaw_rate, t)
+    odometry.update(left, right, yaw_rate, t, accel)
     for _ in range(int(seconds * rate_hz)):
         t += 1 / rate_hz
         left += speed / R / rate_hz
         right += speed / R / rate_hz
-        odometry.update(left, right, yaw_rate, t)
+        odometry.update(left, right, yaw_rate, t, accel)
 
 
 def test_straight_line_distance_and_speed():
@@ -25,6 +25,99 @@ def test_straight_line_distance_and_speed():
     assert odometry.x == pytest.approx(6.0, rel=1e-6)
     assert odometry.y == pytest.approx(0.0, abs=1e-9)
     assert odometry.speed == pytest.approx(2.0)
+
+
+def brake(odometry, v0, decel, seconds, rate_hz=100):
+    """Feed wheel angles for a straight run that decelerates from v0 at decel m/s^2."""
+    left = right = t = 0.0
+    odometry.update(left, right, 0.0, t)
+    speed = v0
+    for _ in range(int(seconds * rate_hz)):
+        t += 1 / rate_hz
+        speed = max(0.0, speed - decel / rate_hz)
+        left += speed / R / rate_hz
+        right += speed / R / rate_hz
+        odometry.update(left, right, 0.0, t)
+
+
+def test_slip_gain_off_changes_nothing_and_cruise_is_unchanged():
+    plain = WheelOdometry(R, 1.05)
+    corrected = WheelOdometry(R, 1.05, slip_gain=0.025)
+    drive(plain, 3.0, 0.0, 3.0)
+    drive(corrected, 3.0, 0.0, 3.0)
+    assert corrected.x == pytest.approx(plain.x, rel=0.002)  # no acceleration: same scale
+
+
+def test_slip_gain_lengthens_distance_while_braking():
+    plain = WheelOdometry(R, 1.05)
+    corrected = WheelOdometry(R, 1.05, slip_gain=0.025)
+    brake(plain, 6.0, 3.0, 1.5)
+    brake(corrected, 6.0, 3.0, 1.5)
+    assert corrected.x > plain.x * 1.04   # about -3 m/s^2 x 0.025 = +7.5 % at full braking, less while it ramps up
+    assert corrected.x < plain.x * 1.09
+
+
+def brake_with_imu(odometry, v0, decel, seconds, wheel_factor, rate_hz=100):
+    """Straight braking where the wheels read wheel_factor x the true speed and the IMU is exact."""
+    left = right = t = 0.0
+    odometry.update(left, right, 0.0, t, 0.0)
+    speed, truth = v0, 0.0
+    for _ in range(int(seconds * rate_hz)):
+        t += 1 / rate_hz
+        speed = max(0.0, speed - decel / rate_hz)
+        truth += speed / rate_hz
+        left += speed * wheel_factor / R / rate_hz
+        right += speed * wheel_factor / R / rate_hz
+        odometry.update(left, right, 0.0, t, -decel if speed > 0 else 0.0)
+    return truth
+
+
+def test_imu_fusion_recovers_distance_when_wheels_under_read_while_braking():
+    truth = None
+    results = {}
+    for fused in (False, True):
+        odometry = WheelOdometry(R, 1.0, imu_fusion=fused)
+        # cruise 6 m/s for 2 s (wheels exact), then brake at 3 m/s^2 with the wheels reading 40 % low
+        drive(odometry, 6.0, 0.0, 2.0, rate_hz=100, accel=0.0)
+        x0 = odometry.x
+        left_start = 6.0 / R * 2.0
+        t = 2.0
+        left = right = left_start
+        speed = 6.0
+        for _ in range(int(1.5 * 100)):
+            t += 0.01
+            speed = max(0.0, speed - 3.0 * 0.01)
+            left += speed * 0.6 / R * 0.01
+            right += speed * 0.6 / R * 0.01
+            odometry.update(left, right, 0.0, t, -3.0 if speed > 0 else 0.0)
+        results[fused] = odometry.x - x0
+        truth = (6.0 + 6.0 - 3.0 * 1.5) / 2 * 1.5 if truth is None else truth
+    assert results[False] == pytest.approx(0.6 * truth, rel=0.02)   # the wheels alone are 40 % short
+    assert results[True] == pytest.approx(truth, rel=0.12)          # the IMU brings it close
+
+
+def test_imu_fusion_without_acceleration_uses_the_wheels():
+    plain = WheelOdometry(R, 1.1)
+    fused = WheelOdometry(R, 1.1, imu_fusion=True)
+    drive(plain, 3.0, 0.0, 2.0)
+    drive(fused, 3.0, 0.0, 2.0)   # drive() passes no acceleration
+    assert fused.x == pytest.approx(plain.x)
+
+
+def test_imu_fusion_restarts_from_the_wheels_after_a_gap():
+    odometry = WheelOdometry(R, 1.0, imu_fusion=True)
+    odometry.update(0.0, 0.0, 0.0, 0.0, 0.0)
+    odometry.update(1.0, 1.0, 0.0, 0.01, 0.0)
+    odometry.update(5.0, 5.0, 0.0, 5.0, 0.0)   # five seconds later: a respawn, not a measurement
+    assert odometry.fused_accel == 0.0
+    assert odometry.fused_speed == pytest.approx(4.0 * R / 4.99, rel=1e-6)
+
+
+def test_slip_gain_is_validated():
+    with pytest.raises(ValueError):
+        WheelOdometry(R, 1.0, slip_gain=0.5)
+    with pytest.raises(ValueError):
+        WheelOdometry(R, 1.0, slip_gain=-0.01)
 
 
 def test_constant_turn_follows_the_circle():

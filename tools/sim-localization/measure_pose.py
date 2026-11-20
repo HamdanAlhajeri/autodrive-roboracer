@@ -14,6 +14,7 @@ One JSON line per message: ``k`` is the kind, ``tr`` the recorder's monotonic re
             -1 for no return) and the angle grid (``a0``, ``da``), enough to replay the localizer offline
     diag    /avlite/controller_diagnostics (estimate, truth, alignment, path progress)
     cmd     /avlite/control_command (steering angle, speed, acceleration)
+    imu     IMU stamp, linear acceleration (ax, ay, az) and yaw rate (wz)
     lap, collision   the simulator's counters
     plan    the race plan (path and velocity), once
     reset   a reset this script issued, with the car's position and the reason
@@ -33,7 +34,7 @@ from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
-from sensor_msgs.msg import LaserScan
+from sensor_msgs.msg import Imu, LaserScan
 from std_msgs.msg import Bool, Int32, String
 
 PREFIX = "/autodrive/roboracer_1"
@@ -110,6 +111,10 @@ def main():
         except ValueError:
             pass
 
+    def on_imu(msg):
+        a = msg.linear_acceleration
+        write("imu", s=stamp(msg), ax=a.x, ay=a.y, az=a.z, wz=msg.angular_velocity.z)
+
     scan_count = [0]
 
     def on_scan(msg):
@@ -129,6 +134,7 @@ def main():
     sub(Odometry, PREFIX + "/odom", on_truth, qos_profile_sensor_data)
     sub(Odometry, PREFIX + "/wheel_odom", on_wheel, 10)
     sub(LaserScan, PREFIX + "/scan", on_scan, qos_profile_sensor_data)
+    sub(Imu, PREFIX + "/imu", on_imu, qos_profile_sensor_data)
     sub(String, "/avlite/controller_diagnostics", on_diag, 10)
     sub(AckermannDriveStamped, "/avlite/control_command", on_cmd, 10)
     sub(Int32, PREFIX + "/lap_count", lambda m: write("lap", n=m.data), 10)
