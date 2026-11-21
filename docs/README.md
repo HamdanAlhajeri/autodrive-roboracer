@@ -13,6 +13,7 @@ Start with the root [README](../README.md) and [team contribution guide](../CONT
 | Replica of the RoboRacer IROS 2026 race track | [IROS 2026 track](iros2026-track.md) |
 | Measure acceleration and braking response | [Response measurements](response-measurements.md) |
 | Record, map, localize and race the Jetson car | [Jetson car](jetson.md) |
+| First day on the car: what to do, in order, with a person at the car | [First-day checklist](jetson-first-day-checklist.md) |
 
 ## Plans and evidence
 
@@ -23,6 +24,7 @@ Start with the root [README](../README.md) and [team contribution guide](../CONT
 | [plans/LOCALIZATIONPLAN.md](plans/LOCALIZATIONPLAN.md) | Jetson map-one-lap-then-race plan; software implemented, hardware validation pending |
 | [plans/real-car-plugin.md](plans/real-car-plugin.md) | Earlier hardware proposal (AVLite ICP); superseded by the SLAM Toolbox plan |
 | [validation/](validation/) | Dated measurements, graphs and test reports |
+| [validation/localization-metrics.md](validation/localization-metrics.md) | How alignment, "localization lost" and localization error are calculated |
 | [validation/controller-history.md](validation/controller-history.md) | Earlier steering and actuator comparisons, moved out of the README |
 | [history/avlite-integration-plan.md](history/avlite-integration-plan.md) | Original integration plan |
 | [research/localization-resources.txt](research/localization-resources.txt) | Mapping/localization reading list |

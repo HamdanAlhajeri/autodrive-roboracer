@@ -1,0 +1,314 @@
+diff --git a/config/actuator.yaml b/config/actuator.yaml
+index a2ba8e8..cb48c27 100644
+--- a/config/actuator.yaml
++++ b/config/actuator.yaml
+@@ -16,3 +16,7 @@ avlite_actuator_adapter:
+     # limits in avlite.yaml must stay within these; .\avlite.ps1 speed checks that.
+     max_acceleration: 3.0
+     max_deceleration: 3.5
++    # Active braking (negative throttle) per m/s^2 of requested deceleration; 0 = coast only.
++    brake_gain: 0.0
++    max_brake: 0.0
++    brake_min_speed: 0.5
+diff --git a/src/avlite_autodrive/avlite_autodrive/actuation.py b/src/avlite_autodrive/avlite_autodrive/actuation.py
+index e417da7..049d965 100644
+--- a/src/avlite_autodrive/avlite_autodrive/actuation.py
++++ b/src/avlite_autodrive/avlite_autodrive/actuation.py
+@@ -21,18 +21,44 @@ class Limits:
+     braking_acceleration_threshold: float = 0.1
+     max_acceleration: float = 2.0
+     max_deceleration: float = 3.0
++    # Active braking: negative throttle per m/s^2 of requested deceleration, capped at
++    # max_brake and only while faster than brake_min_speed so the car never reverses.
++    # brake_gain 0 (default) keeps throttle-off coasting as the only braking.
++    brake_gain: float = 0.0
++    max_brake: float = 0.0
++    brake_min_speed: float = 0.5
++    # Anti-lock: wheel slip = 1 - wheel speed / reference speed. The reference starts at
++    # the fused vehicle speed when a brake event begins and then integrates only the IMU
++    # forward acceleration, so slipping wheels cannot pull it down. Above abs_slip_limit
++    # the brake fraction drops at abs_release_rate per second; below it the fraction
++    # recovers at abs_apply_rate per second, updated on every wheel-speed sample. Each
++    # brake event starts at abs_start_fraction. Without fresh slip data the car coasts.
++    abs_slip_limit: float = 0.1
++    abs_release_rate: float = 8.0
++    abs_apply_rate: float = 3.0
++    abs_start_fraction: float = 0.5
++    # Brake only near straight: the demand fades linearly to zero at this steering angle
++    # (rad), because braking while turning takes the rear tyres' sideways grip.
++    brake_steer_limit: float = 0.15
+ 
+     def __post_init__(self):
+         """Reject unusable actuator settings as soon as the dataclass is created.
+ 
+-        All gains and limits must be positive finite numbers. Throttle is normalized to 0-1,
+-        while the steering limit is an angle in radians. Acceleration limits are m/s^2
+-        magnitudes; max_deceleration bounds negative requests.
++        All gains and limits must be positive finite numbers, except the braking gain and
++        braking cap, which may be zero (braking off). Throttle is normalized to 0-1, while
++        the steering limit is an angle in radians. Acceleration limits are m/s^2 magnitudes;
++        max_deceleration bounds negative requests.
+         """
+-        if not all(math.isfinite(v) and v > 0 for v in vars(self).values()):
++        optional = {"brake_gain", "max_brake"}
++        if not all(math.isfinite(v) and (v >= 0 if k in optional else v > 0)
++                   for k, v in vars(self).items()):
+             raise ValueError("Actuator limits/gains must be finite and positive")
+         if self.max_throttle > 1 or self.max_steer >= math.pi / 2:
+             raise ValueError("Invalid throttle or steering limit")
++        if self.max_brake > 1:
++            raise ValueError("max_brake is a normalized throttle magnitude, at most 1")
++        if self.abs_slip_limit >= 1 or self.abs_start_fraction > 1:
++            raise ValueError("abs_slip_limit must be below 1 and abs_start_fraction at most 1")
+ 
+ 
+ class Actuation:
+@@ -58,11 +84,19 @@ class Actuation:
+         self.speed = 0.0
+         self.reason = "waiting for sensors and command"
+         self.braking_requested = False
++        self.wheel_speed = self.vehicle_speed = None
++        self.slip_time = self.imu_time = -math.inf
++        self.imu_accel = 0.0
++        self.end_brake_event()
++        self.steering_output = 0.0
+         self.diagnostics = {
+             "actuator_target_speed_mps": 0.0,
+             "throttle_saturated": False,
+             "actuator_steering_saturated": False,
+             "braking_requested": False,
++            "actuator_brake": 0.0,
++            "actuator_wheel_slip": None,
++            "actuator_abs_fraction": self.abs_fraction,
+             "actuator_command_age_s": None,
+             "actuator_odom_age_s": None,
+             "actuator_lidar_age_s": None,
+@@ -94,6 +128,69 @@ class Actuation:
+         self.speed = speed
+         self.odom_time = now
+ 
++    def end_brake_event(self):
++        """Release the brake and forget the event's reference speed."""
++        self.brake_demand = 0.0
++        self.brake_reference = None
++        self.abs_fraction = self.limits.abs_start_fraction
++
++    def receive_imu(self, forward_acceleration, now):
++        """Store the IMU forward acceleration (m/s^2) that carries the anti-lock reference."""
++        if math.isfinite(forward_acceleration) and math.isfinite(now):
++            self.imu_accel, self.imu_time = forward_acceleration, now
++
++    def receive_slip(self, wheel_speed, vehicle_speed, now):
++        """Store wheel and fused vehicle speed (m/s); during a brake event run anti-lock.
++
++        Called on every wheel-speed sample, so the brake fraction reacts faster than the
++        control tick. Return the new (throttle, steering) to publish while braking, else None.
++        Nonfinite values are dropped, which makes braking fall back to coasting.
++        """
++        if not all(math.isfinite(v) for v in (wheel_speed, vehicle_speed, now)):
++            return None
++        previous, lim = self.slip_time, self.limits
++        self.wheel_speed, self.vehicle_speed, self.slip_time = wheel_speed, vehicle_speed, now
++        if self.brake_demand <= 0 or self.brake_reference is None:
++            return None
++        dt = now - previous
++        if not 0 < dt <= 0.1:
++            return None
++        if 0 <= now - self.imu_time <= 0.1:
++            self.brake_reference += self.imu_accel * dt
++        else:  # no IMU: the fused speed is the best reference left
++            self.brake_reference = vehicle_speed
++        if self.brake_reference <= lim.brake_min_speed:
++            self.end_brake_event()
++            return 0.0, self.steering_output
++        slip = 1.0 - wheel_speed / self.brake_reference
++        if slip > lim.abs_slip_limit:
++            self.abs_fraction = max(0.0, self.abs_fraction - lim.abs_release_rate * dt)
++        else:
++            self.abs_fraction = min(1.0, self.abs_fraction + lim.abs_apply_rate * dt)
++        self.diagnostics["actuator_wheel_slip"] = slip
++        return -self.brake_demand * self.abs_fraction, self.steering_output
++
++    def brake_command(self, acceleration, steer, now):
++        """Return the brake magnitude (0 to max_brake) for one braking tick.
++
++        The demand is brake_gain x requested deceleration, faded to zero as the steering
++        angle approaches brake_steer_limit, then scaled by the anti-lock fraction. No
++        braking near standstill or without fresh slip data.
++        """
++        lim = self.limits
++        straight = clamp(1.0 - abs(steer) / lim.brake_steer_limit, 0.0, 1.0)
++        demand = min(lim.max_brake, lim.brake_gain * -acceleration) * straight
++        fresh = 0 <= now - self.slip_time <= lim.timeout
++        if (demand <= 0 or self.speed <= lim.brake_min_speed or not fresh
++                or self.vehicle_speed <= lim.brake_min_speed):
++            self.end_brake_event()
++            return 0.0
++        if self.brake_reference is None:  # a new brake event
++            self.brake_reference = self.vehicle_speed
++            self.abs_fraction = lim.abs_start_fraction
++        self.brake_demand = demand
++        return demand * self.abs_fraction
++
+     def tick(self, now, dt):
+         """Convert the latest acceleration request into normalized throttle and steering.
+ 
+@@ -112,12 +209,15 @@ class Actuation:
+             "throttle_saturated": False,
+             "actuator_steering_saturated": False,
+             "braking_requested": False,
++            "actuator_brake": 0.0,
+         })
+         if self.command is None or any(
+             not math.isfinite(a) or a < 0 or a > self.limits.timeout for a in ages
+         ):
+             self.target_speed = self.integral = 0.0
+             self.braking_requested = False
++            self.end_brake_event()
++            self.steering_output = 0.0
+             self.diagnostics["actuator_target_speed_mps"] = 0.0
+             self.reason = "stale or missing sensors/command"
+             return 0.0, 0.0
+@@ -127,6 +227,7 @@ class Actuation:
+             return 0.0, 0.0
+         steer, acceleration = self.command
+         steering = clamp(steer / self.limits.max_steer, -1.0, 1.0)
++        self.steering_output = steering
+         self.diagnostics["actuator_steering_saturated"] = abs(steer) >= self.limits.max_steer
+         if acceleration <= -self.limits.braking_acceleration_threshold:
+             # Positive feedforward must not oppose a deceleration request. The
+@@ -143,8 +244,15 @@ class Actuation:
+                 "actuator_target_speed_mps": self.target_speed,
+                 "braking_requested": True,
+             })
++            brake = self.brake_command(acceleration, steer, now)
++            self.diagnostics["actuator_brake"] = brake
++            self.diagnostics["actuator_abs_fraction"] = self.abs_fraction
++            if brake > 0:
++                self.reason = "deceleration requested; braking"
++                return -brake, steering
+             self.reason = "deceleration requested; zero throttle"
+             return 0.0, steering
++        self.end_brake_event()  # next brake event starts gently from a fresh reference
+         if self.braking_requested:
+             # Feedback may have fallen further between the last braking tick and
+             # this command. Do not restore a stale, higher speed demand.
+diff --git a/src/avlite_autodrive/avlite_autodrive/adapter.py b/src/avlite_autodrive/avlite_autodrive/adapter.py
+index 90df986..8cedeca 100644
+--- a/src/avlite_autodrive/avlite_autodrive/adapter.py
++++ b/src/avlite_autodrive/avlite_autodrive/adapter.py
+@@ -13,7 +13,7 @@ from rclpy.qos import qos_profile_sensor_data
+ from rclpy.signals import SignalHandlerOptions
+ from ackermann_msgs.msg import AckermannDriveStamped
+ from nav_msgs.msg import Odometry
+-from sensor_msgs.msg import LaserScan
++from sensor_msgs.msg import Imu, LaserScan
+ from std_msgs.msg import Bool, Float32, String
+ 
+ from .actuation import Actuation, Limits
+@@ -47,6 +47,11 @@ class ActuatorAdapter(Node):
+             LaserScan, PREFIX + "/lidar", self.on_scan, qos_profile_sensor_data
+         )
+         self.create_subscription(Bool, "/autodrive/reset_command", self.on_reset, 1)
++        # Anti-lock inputs from the odometry node: scaled wheel speed and IMU-fused speed.
++        self.wheel_speed = None
++        self.create_subscription(Float32, "/avlite/wheel_speed", self.on_wheel_speed, 10)
++        self.create_subscription(Odometry, PREFIX + "/wheel_odom", self.on_fused_odom, 10)
++        self.create_subscription(Imu, PREFIX + "/imu", self.on_imu, qos_profile_sensor_data)
+         self.previous_pose = None
+         self.previous_time = time.monotonic()
+         self.last_reason = None
+@@ -89,6 +94,26 @@ class ActuatorAdapter(Node):
+         self.previous_pose = pose
+         self.control.receive_speed(speed, now)
+ 
++    def on_wheel_speed(self, msg):
++        """Keep the latest scaled wheel speed; it is paired with the next fused odometry."""
++        self.wheel_speed = float(msg.data)
++
++    def on_fused_odom(self, msg):
++        """Run the anti-lock check on each wheel-speed sample; publish a changed brake now.
++
++        Braking output is only produced inside a brake event the 20 Hz tick started, and
++        that tick still applies every watchdog.
++        """
++        if self.wheel_speed is not None:
++            result = self.control.receive_slip(
++                self.wheel_speed, float(msg.twist.twist.linear.x), time.monotonic())
++            if result is not None and self.count_publishers(PREFIX + "/throttle_command") <= 1:
++                self.publish(*result)
++
++    def on_imu(self, msg):
++        """Pass the IMU forward acceleration to the anti-lock reference speed."""
++        self.control.receive_imu(float(msg.linear_acceleration.x), time.monotonic())
++
+     def on_scan(self, msg):
+         """Refresh the LiDAR watchdog only when the incoming scan passes validation.
+ 
+diff --git a/src/avlite_autodrive/avlite_autodrive/diagnostics.py b/src/avlite_autodrive/avlite_autodrive/diagnostics.py
+index bf87aa7..6305323 100644
+--- a/src/avlite_autodrive/avlite_autodrive/diagnostics.py
++++ b/src/avlite_autodrive/avlite_autodrive/diagnostics.py
+@@ -21,7 +21,8 @@ CONTROLLER_FIELDS = frozenset({
+ ACTUATOR_FIELDS = frozenset({
+     "actuator_target_speed_mps", "throttle_saturated", "actuator_steering_saturated",
+     "braking_requested", "actuator_command_age_s", "actuator_odom_age_s",
+-    "actuator_lidar_age_s", "actuator_loop_dt_s",
++    "actuator_lidar_age_s", "actuator_loop_dt_s", "actuator_brake",
++    "actuator_wheel_slip", "actuator_abs_fraction",
+ })
+ 
+ 
+diff --git a/src/avlite_autodrive/avlite_autodrive/sim_odometry.py b/src/avlite_autodrive/avlite_autodrive/sim_odometry.py
+index 10a02a6..d3fdace 100644
+--- a/src/avlite_autodrive/avlite_autodrive/sim_odometry.py
++++ b/src/avlite_autodrive/avlite_autodrive/sim_odometry.py
+@@ -31,6 +31,7 @@ from avlite_autodrive.ros_utils import PREFIX, odom_state
+ 
+ ODOM_TOPIC = PREFIX + "/wheel_odom"
+ SCAN_TOPIC = PREFIX + "/scan"
++WHEEL_SPEED_TOPIC = "/avlite/wheel_speed"  # scaled wheel speed, compared with ODOM_TOPIC speed for slip
+ LIDAR_MOUNT = (0.2733, 0.0, 0.096)  # Published by AutoDRIVE: rear axle -> LiDAR.
+ 
+ 
+@@ -121,7 +122,7 @@ class WheelOdometry:
+         self.wrapped = wrapped  # True if encoders report angles in [0, 2*pi) or (-pi, pi]
+         self.time_scale = 1.0   # simulated seconds per stamp second (see ClockRate)
+         self.x = self.y = self.yaw = 0.0
+-        self.speed = self.yaw_rate = 0.0
++        self.speed = self.yaw_rate = self.wheel_speed = 0.0
+         self.angles = None
+         self.time = None
+ 
+@@ -155,6 +156,7 @@ class WheelOdometry:
+                 self.filtered_accel += min(1.0, dt / 0.2) * (accel - self.filtered_accel)
+             scale -= self.slip_gain * max(-6.0, min(3.0, self.filtered_accel))
+         distance = raw_distance * scale
++        self.wheel_speed = distance / dt  # scaled wheel speed before fusion (the actuator's slip check)
+         if self.imu_fusion and accel is not None and math.isfinite(accel):
+             wheel_speed = distance / dt
+             if self.fused_speed is None or dt > 0.5:  # first sample or a gap (respawn): restart from the wheels
+@@ -183,6 +185,7 @@ def main(argv=None):
+     from rclpy.node import Node
+     from rclpy.qos import qos_profile_sensor_data
+     from sensor_msgs.msg import Imu, JointState, LaserScan
++    from std_msgs.msg import Float32
+     from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
+ 
+     parser = argparse.ArgumentParser(description=__doc__,
+@@ -214,6 +217,7 @@ def main(argv=None):
+     rclpy.init(args=ros_args)
+     node = Node("avlite_sim_odometry")
+     odom_pub = node.create_publisher(Odometry, ODOM_TOPIC, 10)
++    wheel_speed_pub = node.create_publisher(Float32, WHEEL_SPEED_TOPIC, 10)
+     scan_pub = node.create_publisher(LaserScan, SCAN_TOPIC, qos_profile_sensor_data)
+     tf_pub = TransformBroadcaster(node)
+     static_pub = StaticTransformBroadcaster(node)
+@@ -282,6 +286,7 @@ def main(argv=None):
+          odom.pose.pose.orientation.z, odom.pose.pose.orientation.w) = q
+         odom.twist.twist.linear.x = odometry.speed
+         odom.twist.twist.angular.z = odometry.yaw_rate
++        wheel_speed_pub.publish(Float32(data=float(odometry.wheel_speed)))  # before odom: paired on arrival
+         odom_pub.publish(odom)
+         t = TransformStamped()
+         t.header = odom.header

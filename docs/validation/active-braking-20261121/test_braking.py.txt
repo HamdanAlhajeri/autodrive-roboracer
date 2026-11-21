@@ -1,0 +1,136 @@
+import pytest
+
+from avlite_autodrive.actuation import Actuation, Limits
+
+
+def ready(control, now=10, speed=0, steering=0, acceleration=1, wheel=None):
+    """Fresh command, speed and scan; wheel (m/s) also supplies slip data (vehicle = speed)."""
+    control.receive_speed(speed, now)
+    control.scan_time = now
+    control.receive_command(steering, acceleration, now)
+    if wheel is not None:
+        control.receive_slip(wheel, speed, now)
+
+
+def braking(**kwargs):
+    settings = dict(max_speed=12.0, max_throttle=0.9, max_deceleration=6.0,
+                    brake_gain=0.1, max_brake=0.4, abs_start_fraction=1.0)
+    settings.update(kwargs)
+    return Actuation(Limits(**settings))
+
+
+def start_brake_event(c, speed=8.0, acceleration=-4.0):
+    ready(c, speed=speed, acceleration=acceleration, wheel=speed)
+    return c.tick(10, 0.05)[0]
+
+
+def test_braking_off_by_default_only_cuts_throttle():
+    c = Actuation(Limits(max_speed=12.0, max_throttle=0.9))
+    ready(c, speed=8.0, acceleration=-3.0, wheel=8.0)
+    assert c.tick(10, 0.05)[0] == 0.0
+    assert c.diagnostics["actuator_brake"] == 0.0
+
+
+def test_braking_scales_with_requested_deceleration():
+    c = braking()
+    assert start_brake_event(c, acceleration=-2.0) == pytest.approx(-0.2)
+    assert c.diagnostics["actuator_brake"] == pytest.approx(0.2)
+    assert c.diagnostics["braking_requested"] is True
+
+
+def test_braking_is_capped():
+    assert start_brake_event(braking(), acceleration=-6.0) == pytest.approx(-0.4)
+
+
+@pytest.mark.parametrize("steer,fraction", [(0.0, 1.0), (0.075, 0.5), (-0.075, 0.5),
+                                            (0.15, 0.0), (0.3, 0.0)])
+def test_brake_fades_out_with_steering(steer, fraction):
+    c = braking(brake_steer_limit=0.15)
+    ready(c, speed=8.0, acceleration=-2.0, steering=steer, wheel=8.0)
+    assert c.tick(10, 0.05)[0] == pytest.approx(-0.2 * fraction)
+
+
+def test_braking_stops_near_standstill_so_the_car_never_reverses():
+    c = braking(brake_min_speed=0.5)
+    ready(c, speed=0.4, acceleration=-3.0, wheel=0.4)
+    assert c.tick(10, 0.05)[0] == 0.0
+
+
+def test_without_slip_data_the_actuator_coasts():
+    c = braking()
+    ready(c, speed=8.0, acceleration=-3.0)
+    assert c.tick(10, 0.05)[0] == 0.0
+    c.receive_slip(8.0, 8.0, 9.0)  # older than the timeout
+    assert c.tick(10, 0.05)[0] == 0.0
+
+
+def test_small_deceleration_below_threshold_does_not_brake():
+    c = braking()
+    c.target_speed = 5.0
+    ready(c, speed=5.0, acceleration=-0.05, wheel=5.0)
+    assert c.tick(10, 0.05)[0] >= 0.0
+
+
+def test_watchdog_releases_the_brake_and_ends_the_event():
+    c = braking()
+    assert start_brake_event(c) < 0
+    assert c.tick(10.6, 0.05) == (0.0, 0.0)
+    assert c.brake_reference is None
+    assert c.receive_slip(8.0, 8.0, 10.61) is None
+
+
+def test_slip_samples_outside_a_brake_event_publish_nothing():
+    c = braking()
+    assert c.receive_slip(8.0, 8.0, 10.0) is None
+
+
+def test_anti_lock_releases_on_wheel_samples_while_the_wheels_lock():
+    c = braking(abs_slip_limit=0.1, abs_release_rate=8.0)
+    start_brake_event(c)
+    brakes = []
+    for i in range(1, 6):  # 100 Hz wheel samples, wheels at 60 % of the reference
+        now = 10 + i * 0.01
+        c.receive_imu(-4.0, now)
+        throttle, _ = c.receive_slip(4.8, 8.0, now)
+        brakes.append(-throttle)
+    assert brakes == sorted(brakes, reverse=True)
+    assert brakes[-1] < 0.4 * 0.7
+    assert c.diagnostics["actuator_wheel_slip"] > 0.3
+
+
+def test_reference_follows_the_imu_not_the_fused_speed():
+    c = braking(abs_apply_rate=3.0, abs_start_fraction=0.5)
+    start_brake_event(c, speed=8.0)
+    for i in range(1, 11):  # fused speed falls with the slipping wheels; the IMU says -2 m/s^2
+        now = 10 + i * 0.01
+        c.receive_imu(-2.0, now)
+        c.receive_slip(7.8, 5.0, now)
+    assert c.brake_reference == pytest.approx(8.0 - 2.0 * 0.1)
+    assert c.diagnostics["actuator_wheel_slip"] == pytest.approx(0.0, abs=0.01)
+    assert c.abs_fraction > 0.5  # no slip against the IMU reference: brake reapplied
+
+
+def test_without_imu_the_reference_falls_back_to_the_fused_speed():
+    c = braking()
+    start_brake_event(c, speed=8.0)
+    c.receive_slip(7.0, 7.0, 10.01)
+    assert c.brake_reference == 7.0
+
+
+def test_each_brake_event_starts_at_the_start_fraction():
+    c = braking(abs_start_fraction=0.5)
+    assert start_brake_event(c, acceleration=-2.0) == pytest.approx(-0.1)
+    ready(c, now=10.05, speed=8.0, acceleration=1.0, wheel=8.0)
+    c.tick(10.05, 0.05)
+    assert c.abs_fraction == 0.5
+    assert c.brake_reference is None
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"brake_gain": -0.1}, {"max_brake": 1.5}, {"max_brake": float("nan")},
+    {"brake_min_speed": 0}, {"abs_slip_limit": 1.0}, {"abs_start_fraction": 1.5},
+    {"abs_release_rate": 0}, {"brake_steer_limit": 0},
+])
+def test_invalid_braking_settings_are_rejected(kwargs):
+    with pytest.raises(ValueError):
+        Limits(**kwargs)
