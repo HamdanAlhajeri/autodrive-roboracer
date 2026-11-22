@@ -30,7 +30,7 @@ Deceleration is the median measured deceleration while the controller requested 
 
 ## What is in the patch
 
-`anti-lock-braking.patch` (against the sources before this work): actuator brake settings (`brake_gain`, `max_brake`,
+`anti-lock-braking.patch` (against commit `6b7b8fc`; the slip-gain code it touches in `sim_odometry.py` has since been removed, so use `git apply --3way` or check out that commit first): actuator brake settings (`brake_gain`, `max_brake`,
 `brake_min_speed`, `abs_*`, `brake_steer_limit`), anti-lock control driven by the IMU reference speed, the odometry node
 publishing the scaled wheel speed on `/avlite/wheel_speed`, and adapter subscriptions. `test_braking.py.txt` holds its
 14 test functions. To reuse: `git apply anti-lock-braking.patch`, rename the test file, run the tests.

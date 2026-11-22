@@ -18,15 +18,15 @@ IMU). Raw recordings and videos stay in `log/` and are not committed.
 
 ## Fix
 
-`sim_odometry.py` gained two options, both off by default:
+`sim_odometry.py` gained an option, off by default:
 
 - `--imu-fusion`: integrate IMU acceleration for speed and pull it toward the scaled wheel speed with a gain that drops
   as acceleration grows (`gain = 3.0 / (1 + (a/0.3)^2)`), so wheels dominate at cruise and the IMU dominates in
   braking and acceleration. Falls back to the wheels when there is no IMU data or after a gap above 0.5 s.
-- `--slip-gain` (tried first): linear speed correction from filtered acceleration.
+- A linear slip correction (`--slip-gain`) was tried first and made things worse; it was removed from the code later (see the 21 November commit history).
 
 `--speed-scale 1.25` is a fit to this simulator's encoder model and will not transfer to the real car; the fusion
-method should. Unit tests: 17 pass in `test/test_sim_odometry.py`.
+method should. Unit tests: 14 pass in `test/test_sim_odometry.py` (17 before the slip correction was removed).
 
 ## Results (one 240 s run each)
 

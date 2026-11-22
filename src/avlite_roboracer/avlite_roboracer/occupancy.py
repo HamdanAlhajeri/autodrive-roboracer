@@ -65,12 +65,6 @@ class OccupancyGrid:
         self._distance = None
 
     @classmethod
-    def from_message_data(cls, width, height, resolution, origin, data, frame_id="map"):
-        """Build from OccupancyGrid message fields (row-major data starting at the origin)."""
-        return cls(np.asarray(data, dtype=np.int16).reshape(height, width), resolution, origin,
-                   frame_id)
-
-    @classmethod
     def load(cls, yaml_path, frame_id="map"):
         """Load a map_saver YAML description and its image, applying its thresholds."""
         yaml_path = Path(yaml_path)

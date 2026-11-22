@@ -14,6 +14,21 @@ surveying the start line, re-applied after every simulator reset.
 AVLite's ICP is unchanged. This subclass only feeds it real LiDAR hits (our cloud puts
 no-return beams at maximum range for Follow the Gap) and thins scan and reference map so
 one step fits the 20 Hz control loop.
+
+What the localizer does each scan, and the figures reported from it:
+
+1. Predict: move the previous pose by the wheel-odometry motion since the last scan.
+2. ICP: nudge that pose until the scan points land on the map (nearest-neighbour matching).
+3. Score: ``alignment`` = share of scan points within ``alignment_tolerance_m`` (0.10 m) of a
+   map wall.
+4. Lost pose: ``lost_scans`` (5) scans in a row below ``lost_alignment`` (0.5) trigger a search
+   within ``recovery_radius_m`` of the estimate; a pose scoring ``recovery_accept`` (0.6) or
+   better is adopted and ``recoveries`` goes up by one. This counter is the "localization lost"
+   figure in the reports (see ``docs/validation/localization-metrics.md``). Failed searches are
+   counted in ``recovery_tries``.
+
+The ``odometry_max_accel_mps2`` and ``pose_lead_s`` options were tested and left off (they made the
+car crash more); they stay as documented experiments.
 """
 
 from dataclasses import dataclass
@@ -189,7 +204,11 @@ class AutoDRIVELidarLocalization(LidarLocalization):
         self.seed()
 
     def _nearest_neighbours(self, points, reference):
-        """Same matches as AVLite's brute-force search, from a KD-tree."""
+        """Same matches as AVLite's brute-force search, from a KD-tree.
+
+        Overrides a hook called from AVLite's ICP (``c16_localization_algs``), so it has no
+        caller in this repository.
+        """
         tree = self._tree if reference is self._map and self._tree is not None else cKDTree(reference)
         dists, idx = tree.query(points)
         return idx, dists

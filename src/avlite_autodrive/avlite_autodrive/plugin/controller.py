@@ -130,6 +130,10 @@ class AutoDRIVEFollowTheGap(FollowTheGapController):
     def largest_gap_target(self, ego_pts, ld, preferred_bearing=None):
         """Choose a local (x, y) steering target from LiDAR points in the car frame.
 
+        Overrides a hook of AVLite's Pure Pursuit (called from its ``control``), so it has no
+        caller in this repository. This is Follow the Gap: steer toward the widest opening in
+        the scan. It drives the mapping lap.
+
         ld is the steering lookahead in metres. Racing mode can inspect farther ahead for
         gap selection, then shorten that preview at a tight bend. It also records speed
         limits from curvature and available stopping distance.

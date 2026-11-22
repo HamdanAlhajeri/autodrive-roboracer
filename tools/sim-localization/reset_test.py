@@ -13,7 +13,6 @@ and whether the plan stayed valid.
 
 import argparse
 import json
-import math
 import time
 
 import rclpy

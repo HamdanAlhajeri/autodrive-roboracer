@@ -6,7 +6,6 @@ supervisor's ICP poses while racing), matches them by time and prints error stat
 """
 import argparse
 import glob
-import math
 import sys
 from pathlib import Path
 

@@ -1,4 +1,10 @@
-"""Wall-clock paced launcher for AVLite's genuine synchronous execution stack."""
+"""Wall-clock paced launcher for AVLite's genuine synchronous execution stack.
+
+``main`` builds the pipeline from ``config/avlite.yaml`` and runs it at a nominal 20 Hz:
+the world bridge reads the simulator's LiDAR and odometry, the localizer estimates the pose, the
+planned controller (or Follow the Gap) produces steering and acceleration, and the bridge publishes
+them to the actuator process. It also publishes the diagnostics every report is computed from.
+"""
 
 import argparse
 import logging

@@ -14,6 +14,16 @@ never has two parents. The node reads the true pose once, only to log where in t
 odometry started: that is ``localization.map_origin_world`` when this run is used for mapping. Optional speed-scale and gyro-bias errors make the sim's ideal sensors
 drift like real ones.
 
+Why speed comes from an IMU fusion (``--imu-fusion``): the simulated wheel encoders under-read the
+true speed by an amount that depends on acceleration (about 0.62 of true speed in hard braking,
+0.9 when cruising, 1.15 in hard acceleration). The LiDAR cannot fix an along-track error between two
+parallel walls, so this speed error became localization drift and then "localization lost" above
+about 6 m/s. The fusion integrates the IMU forward acceleration for the speed and pulls it toward
+the scaled wheel speed with a gain that falls as acceleration rises: the wheels hold the speed
+while cruising, the IMU carries it while braking or accelerating. Distance is fused speed x dt.
+The wheel scale (1.25) is a fit to this simulator's encoders and does not transfer to the real
+car; the method does.
+
 Simulator clock: the encoder and gyro values advance in simulated time, but the messages are
 stamped with the wall clock. When the simulator runs slower than real time (about half, on a busy
 laptop), speed and yaw would come out too small by the same factor, and the controller would drive
@@ -92,20 +102,12 @@ class WheelOdometry:
     because the rear wheels slip in corners.
     """
 
-    def __init__(self, wheel_radius, speed_scale=1.0, yaw_rate_bias=0.0, wrapped=False, slip_gain=0.0,
+    def __init__(self, wheel_radius, speed_scale=1.0, yaw_rate_bias=0.0, wrapped=False,
                  imu_fusion=False, fusion_gain=3.0, fusion_accel_ref=0.3):
         if not (math.isfinite(wheel_radius) and wheel_radius > 0):
             raise ValueError("wheel radius must be positive")
-        if not (math.isfinite(slip_gain) and 0.0 <= slip_gain <= 0.1):
-            raise ValueError("slip gain must be between 0 and 0.1 s^2/m")
         self.wheel_radius = wheel_radius
         self.speed_scale = speed_scale
-        # Slip correction: the distance scale becomes speed_scale - slip_gain * acceleration, so braking
-        # (negative acceleration, wheels slip and under-read) lengthens the distance and accelerating
-        # shortens it. Acceleration comes from the encoder speed itself, low-pass filtered.
-        self.slip_gain = slip_gain
-        self.filtered_speed = None
-        self.filtered_accel = 0.0
         # IMU fusion: speed is integrated from the forward acceleration and pulled toward the scaled wheel
         # speed with gain fusion_gain / (1 + (a / fusion_accel_ref)^2) per second, where a is the filtered
         # acceleration. While cruising the wheels hold the speed; while braking or accelerating (wheels
@@ -142,19 +144,7 @@ class WheelOdometry:
         delta = angle_delta if self.wrapped else (lambda a, b: a - b)
         rotation = (delta(left, self.angles[0]) + delta(right, self.angles[1])) / 2
         raw_distance = rotation * self.wheel_radius
-        scale = self.speed_scale
-        if self.slip_gain > 0.0:
-            raw_speed = raw_distance / dt
-            if self.filtered_speed is None:
-                self.filtered_speed = raw_speed
-            else:
-                blend = min(1.0, dt / 0.15)
-                previous = self.filtered_speed
-                self.filtered_speed += blend * (raw_speed - previous)
-                accel = (self.filtered_speed - previous) / dt
-                self.filtered_accel += min(1.0, dt / 0.2) * (accel - self.filtered_accel)
-            scale -= self.slip_gain * max(-6.0, min(3.0, self.filtered_accel))
-        distance = raw_distance * scale
+        distance = raw_distance * self.speed_scale
         if self.imu_fusion and accel is not None and math.isfinite(accel):
             wheel_speed = distance / dt
             if self.fused_speed is None or dt > 0.5:  # first sample or a gap (respawn): restart from the wheels
@@ -191,9 +181,6 @@ def main(argv=None):
                         help="Rear wheel radius in metres; calibrate against ground truth")
     parser.add_argument("--speed-scale", type=float, default=1.0,
                         help="Multiply encoder distance, e.g. 1.02 for a 2%% error")
-    parser.add_argument("--slip-gain", type=float, default=0.0,
-                        help="Slip correction in s^2/m: distance scale = speed-scale - gain x acceleration "
-                             "(0 = off, e.g. 0.025 when braking under-reads the wheels)")
     parser.add_argument("--imu-fusion", action="store_true",
                         help="Carry the speed with the IMU forward acceleration while braking or accelerating "
                              "(wheels under-read then), and use the scaled wheels while cruising")
@@ -210,7 +197,7 @@ def main(argv=None):
         parser.error("--clock-rate must be 'auto' or a positive number")
     clock = ClockRate()
     odometry = WheelOdometry(options.wheel_radius, options.speed_scale, options.yaw_rate_bias,
-                             options.wrapped_encoders, options.slip_gain, options.imu_fusion)
+                             options.wrapped_encoders, options.imu_fusion)
     rclpy.init(args=ros_args)
     node = Node("avlite_sim_odometry")
     odom_pub = node.create_publisher(Odometry, ODOM_TOPIC, 10)

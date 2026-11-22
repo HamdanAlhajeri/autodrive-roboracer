@@ -8,7 +8,6 @@ trials.json and a chart to OUT_DIR and prints a table.
 
 import argparse
 import json
-import math
 from pathlib import Path
 
 import matplotlib

@@ -27,36 +27,6 @@ def test_straight_line_distance_and_speed():
     assert odometry.speed == pytest.approx(2.0)
 
 
-def brake(odometry, v0, decel, seconds, rate_hz=100):
-    """Feed wheel angles for a straight run that decelerates from v0 at decel m/s^2."""
-    left = right = t = 0.0
-    odometry.update(left, right, 0.0, t)
-    speed = v0
-    for _ in range(int(seconds * rate_hz)):
-        t += 1 / rate_hz
-        speed = max(0.0, speed - decel / rate_hz)
-        left += speed / R / rate_hz
-        right += speed / R / rate_hz
-        odometry.update(left, right, 0.0, t)
-
-
-def test_slip_gain_off_changes_nothing_and_cruise_is_unchanged():
-    plain = WheelOdometry(R, 1.05)
-    corrected = WheelOdometry(R, 1.05, slip_gain=0.025)
-    drive(plain, 3.0, 0.0, 3.0)
-    drive(corrected, 3.0, 0.0, 3.0)
-    assert corrected.x == pytest.approx(plain.x, rel=0.002)  # no acceleration: same scale
-
-
-def test_slip_gain_lengthens_distance_while_braking():
-    plain = WheelOdometry(R, 1.05)
-    corrected = WheelOdometry(R, 1.05, slip_gain=0.025)
-    brake(plain, 6.0, 3.0, 1.5)
-    brake(corrected, 6.0, 3.0, 1.5)
-    assert corrected.x > plain.x * 1.04   # about -3 m/s^2 x 0.025 = +7.5 % at full braking, less while it ramps up
-    assert corrected.x < plain.x * 1.09
-
-
 def brake_with_imu(odometry, v0, decel, seconds, wheel_factor, rate_hz=100):
     """Straight braking where the wheels read wheel_factor x the true speed and the IMU is exact."""
     left = right = t = 0.0
@@ -111,13 +81,6 @@ def test_imu_fusion_restarts_from_the_wheels_after_a_gap():
     odometry.update(5.0, 5.0, 0.0, 5.0, 0.0)   # five seconds later: a respawn, not a measurement
     assert odometry.fused_accel == 0.0
     assert odometry.fused_speed == pytest.approx(4.0 * R / 4.99, rel=1e-6)
-
-
-def test_slip_gain_is_validated():
-    with pytest.raises(ValueError):
-        WheelOdometry(R, 1.0, slip_gain=0.5)
-    with pytest.raises(ValueError):
-        WheelOdometry(R, 1.0, slip_gain=-0.01)
 
 
 def test_constant_turn_follows_the_circle():

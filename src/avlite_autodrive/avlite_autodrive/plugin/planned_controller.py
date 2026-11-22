@@ -1,4 +1,25 @@
-"""AVLite Pure Pursuit with periodic racing and a LiDAR stopping envelope."""
+"""AVLite Pure Pursuit with periodic racing and a LiDAR stopping envelope.
+
+How the car drives in planned (racing) mode, once per 20 Hz control step (see ``control``):
+
+1. Take the estimated pose (from the ICP localizer) and project it onto the closed racing line:
+   this gives the distance travelled along the line (``path_progress_m``) and how far the car is
+   off it (``path_deviation_m``).
+2. Steering: pick a point one lookahead distance ahead on the line and steer toward it with
+   Pure Pursuit (curvature = 2 y / L^2, steering = atan(curvature x wheelbase)). The lookahead
+   grows with speed.
+3. Speed target = the lowest of three limits:
+   - the speed ceiling (``speed_mps`` in ``config/driving.yaml``),
+   - the planned speed profile ahead (corner speeds and braking points from the race planner),
+   - the obstacle limit: the speed from which the car can still stop before the nearest
+     LiDAR hit inside its swept footprint (``swept_hit_distance``, reaction time + braking).
+4. A speed loop turns the target into an acceleration request for the actuator: proportional
+   gain ``c35_valpha`` on (target - measured speed), plus the plan's own acceleration
+   (``acceleration_feedforward``) while the plan is accelerating. Braking limits override it.
+
+Any invalid input (stale scan, pose outside the validated corridor, missing plan) stops the car
+and records why in ``speed_limit_reason`` (``LIMIT_REASONS`` below).
+"""
 
 from dataclasses import dataclass
 import math
@@ -13,7 +34,8 @@ from avlite.c50_common.c52_world_sensor_datatypes import SensorFrame
 from avlite_autodrive.race_map import footprint
 
 
-# Numeric codes preserve the existing telemetry allowlist's numeric-only contract.
+# Why the target speed is what it is. Telemetry carries only numbers, so the controller
+# publishes the code in ``speed_limit_reason``; this table is the key for recordings and plots.
 LIMIT_REASONS = {
     0: "speed ceiling", 1: "planned corner/braking", 2: "obstacle stopping",
     3: "invalid pose/corridor", 4: "missing/stale scan", 5: "commissioning ceiling",
@@ -94,6 +116,9 @@ class AutoDRIVEPlannedController(PurePursuitController):
 
     def find_path_lookahead(self, ego, ld):
         """Locate the car on the loop and return a lookahead point in the car frame.
+
+        This overrides a hook of AVLite's PurePursuitController (called from its ``control``),
+        so it has no caller in this repository.
 
         ld is a distance in metres. ClosedPath.at() wraps across the finish line, so the
         target can lie in the next lap without clamping to the last waypoint.

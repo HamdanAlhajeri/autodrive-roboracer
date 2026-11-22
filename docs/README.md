@@ -14,6 +14,7 @@ Start with the root [README](../README.md) and [team contribution guide](../CONT
 | Measure acceleration and braking response | [Response measurements](response-measurements.md) |
 | Record, map, localize and race the Jetson car | [Jetson car](jetson.md) |
 | First day on the car: what to do, in order, with a person at the car | [First-day checklist](jetson-first-day-checklist.md) |
+| Prepare the final presentation: key ideas, results, likely questions, code map | [Presentation guide](presentation-guide.docx) |
 
 ## Plans and evidence
 

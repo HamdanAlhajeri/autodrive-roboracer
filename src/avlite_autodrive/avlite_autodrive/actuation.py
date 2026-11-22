@@ -1,4 +1,22 @@
-"""Pure-Python command conversion, independently testable without ROS or AVLite."""
+"""Pure-Python command conversion, independently testable without ROS or AVLite.
+
+The actuator is the only code that talks to the car's throttle and steering. AVLite never does.
+It receives steering (radians) and acceleration (m/s^2) requests and turns them into normalized
+throttle (0 to 1) and steering (-1 to 1):
+
+- Steering is the request divided by the maximum steering angle, clipped to +/-1.
+- Acceleration is integrated into a speed target (target += acceleration x dt, kept between 0 and
+  the speed ceiling). Throttle = feedforward x target + P x (target - measured speed) + I x error
+  sum, clipped to ``max_throttle``. The integral only grows while the output is not saturated.
+- A request to slow down (acceleration at or below ``braking_acceleration_threshold``) cuts the
+  throttle to zero and re-bases the speed target on the measured speed so no old demand is left
+  to launch the car afterwards. The car is never driven backwards: zero throttle coasts, there is
+  no braking force (negative throttle was tried and made things worse: see
+  ``docs/validation/active-braking-20261121``).
+- Watchdogs: if the command, the odometry or the LiDAR scan is older than ``timeout`` (0.5 s), or
+  the control loop is paused, output is zero. Acceleration is clipped to ``max_acceleration`` and
+  ``max_deceleration``, which the planner's limits must stay within.
+"""
 
 from dataclasses import dataclass
 import math

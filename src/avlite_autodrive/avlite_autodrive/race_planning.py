@@ -1,4 +1,22 @@
-"""Small-car adapter around the pinned AVLite GlobalRacePlanner."""
+"""Small-car adapter around the pinned AVLite GlobalRacePlanner.
+
+The race planner turns the track (left and right wall lines) into a racing line and a speed profile:
+
+1. Optimize the line: shift points sideways inside the walls to flatten the curvature (a straighter
+   line allows more speed), keeping a margin for the car's footprint (``vehicle_radius_m``,
+   ``tracking_allowance_m``). ``curvature_weight`` and ``optimization_iterations`` set how hard.
+2. Speed profile: the corner speed limit is v = sqrt(lateral_acceleration / curvature), capped by
+   ``speed_mps``. A forward pass limits how fast the car can speed up (``acceleration_mps2``) and a
+   backward pass how late it can brake for the next corner (``braking_deceleration_mps2``).
+3. Validate (``prepare_plan``): the plan is rejected unless the route is a simple closed loop
+   around the island, needs no more curvature than the steering allows, respects the lateral,
+   acceleration and braking limits at every waypoint, keeps the car's footprint inside the
+   track every 2.5 cm, and misses recorded LiDAR hits.
+
+``braking_calibrated: false`` caps the plan at ``commissioning_speed_mps`` (2.5 m/s) until
+braking has been measured. The plan is a planned speed, not what the car achieves: in the
+simulator the car laps about 15 % slower than its own plan.
+"""
 
 from dataclasses import asdict, dataclass
 import hashlib
