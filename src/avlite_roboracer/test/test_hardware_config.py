@@ -278,3 +278,21 @@ def test_commissioning_with_only_chatter_suggests_no_braking_values():
     assert all(s["interrupted"] for s in result["stops"])
     assert "measurements.braking_deceleration_mps2" not in suggestion
     assert "measurements.stopping_distance_m" not in suggestion
+
+
+def test_deadman_fault_says_whether_the_button_was_released_or_the_joystick_went_silent():
+    logic = ActuatorLogic(commissioned_profile())
+    logic.receive_joystick(HELD, 1.0)
+    logic.receive_joystick(HELD, 1.1)
+    status = logic.status(1.2)
+    assert status["deadman_held"] and status["deadman_held_for_s"] == pytest.approx(0.2)
+    assert status["joy_messages"] == 2 and status["joy_releases"] == 0
+    # Silent: no further messages for longer than the timeout.
+    silent = actuator_failures((0.0, logic.status(1.6)), 0.1, 0.5, require_deadman=True)
+    assert len(silent) == 1 and "last /joy message 0.50 s ago" in silent[0]
+    assert "button pressed" in silent[0] and "0 with the button not pressed" in silent[0]
+    # Released: the last message had the button up.
+    logic.receive_joystick(RELEASED, 1.3)
+    released = actuator_failures((0.0, logic.status(1.31)), 0.1, 0.5, require_deadman=True)
+    assert "button NOT pressed" in released[0] and "1 with the button not pressed" in released[0]
+    assert "last release 0.01 s ago" in released[0]

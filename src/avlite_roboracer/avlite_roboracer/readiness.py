@@ -5,6 +5,25 @@ def _fresh(age, timeout):
     return age is not None and 0 <= age <= timeout
 
 
+def _joy_detail(status):
+    """Say which of the two it was, when the actuator reported the joystick details."""
+    if "joy_age_s" not in status:
+        return ""
+    age, pressed = status.get("joy_age_s"), status.get("joy_button_pressed")
+    last_release = status.get("since_last_release_s")
+    parts = ["no /joy message seen yet" if age is None else f"last /joy message {age:.2f} s ago"]
+    if pressed is not None:
+        parts.append("button " + ("pressed" if pressed else "NOT pressed"))
+    parts.append(f"{status.get('joy_messages', 0)} messages, "
+                 f"{status.get('joy_releases', 0)} with the button not pressed")
+    if last_release is not None:
+        parts.append(f"last release {last_release:.2f} s ago")
+    held = status.get("deadman_held_for_s")
+    if held is not None:
+        parts.append(f"held for {held:.2f} s")
+    return " (" + "; ".join(parts) + ")"
+
+
 def actuator_failures(actuator, now, timeout_s, require_deadman=False):
     """Check the actuator process's latest status snapshot.
 
@@ -21,7 +40,7 @@ def actuator_failures(actuator, now, timeout_s, require_deadman=False):
     if status.get("manual_override"):
         failures.append("manual override engaged")
     if require_deadman and not status.get("deadman_held"):
-        failures.append("dead-man button released or joystick silent")
+        failures.append("dead-man button released or joystick silent" + _joy_detail(status))
     return failures
 
 

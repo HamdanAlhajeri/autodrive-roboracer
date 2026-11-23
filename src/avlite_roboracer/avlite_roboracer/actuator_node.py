@@ -43,6 +43,12 @@ class ActuatorLogic:
         self.fault = None
         self.deadman_timeout_s = profile.get("deadman.timeout_s", 0.25)
         self.deadman_time = -math.inf
+        # Evidence for "released or silent": what the last /joy message said and how long ago.
+        self.joy_time = -math.inf
+        self.joy_messages = self.joy_releases = 0
+        self.joy_button_pressed = None
+        self.held_since = None
+        self.last_release_time = -math.inf
         self.commissioned = not profile.missing_for_autonomy()
         if not self.commissioned:
             self.fault = "hardware profile not commissioned; actuator stays silent"
@@ -69,9 +75,18 @@ class ActuatorLogic:
     def receive_joystick(self, buttons, now):
         """Record a joystick message; only a held dead-man button refreshes the timer."""
         button = self.profile.get("deadman.button")
-        if button is not None and button < len(buttons) and buttons[button]:
+        pressed = bool(button is not None and button < len(buttons) and buttons[button])
+        self.joy_time = now
+        self.joy_messages += 1
+        self.joy_button_pressed = pressed
+        if pressed:
+            if self.held_since is None or not self.deadman_held(now):
+                self.held_since = now
             self.deadman_time = now
         else:
+            self.joy_releases += 1
+            self.last_release_time = now
+            self.held_since = None
             self.deadman_time = -math.inf
 
     def deadman_held(self, now):
@@ -107,10 +122,21 @@ class ActuatorLogic:
             return to_hardware(command, self.profile)
         return None
 
+    @staticmethod
+    def _age(then, now):
+        return now - then if math.isfinite(then) else None
+
     def status(self, now):
         return {"state": self.state, "fault": self.fault,
                 "manual_override": self.manual_override,
                 "deadman_held": self.deadman_held(now),
+                "joy_age_s": self._age(self.joy_time, now),
+                "joy_button_pressed": self.joy_button_pressed,
+                "joy_messages": self.joy_messages, "joy_releases": self.joy_releases,
+                "deadman_held_for_s": (now - self.held_since
+                                       if self.held_since is not None
+                                       and self.deadman_held(now) else None),
+                "since_last_release_s": self._age(self.last_release_time, now),
                 "command_expired": self.watchdog.expired,
                 "measured_speed_mps": self.speed if math.isfinite(self.speed) else None}
 
