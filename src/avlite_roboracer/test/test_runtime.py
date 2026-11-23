@@ -123,3 +123,34 @@ def test_scan_stats_text_reports_what_the_stale_lidar_stop_needs():
     text = runtime.scan_stats_text()
     assert "seen 10" in text and "rejected as stale or out of order 3" in text
     assert "last 0.210 s" in text and "max 0.340 s" in text
+
+
+def mapping_stub(session, mapping_session):
+    runtime = runtime_stub()
+    runtime.check_faults = Runtime.check_faults.__get__(runtime)
+    runtime.supervisor.state = State.MAPPING
+    runtime.supervisor.number = session
+    runtime.ages = lambda now: (0.0, 0.0)
+    runtime.actuator = (time.monotonic(), {"fault": None, "manual_override": False,
+                                           "deadman_held": True})
+    runtime.slam = SimpleNamespace(died=False, mode="mapping")
+    runtime.pose = lambda *args, **kwargs: None  # no SLAM pose yet
+    runtime.lap_started = True   # left over from the previous session
+    runtime.mapping_session = mapping_session
+    return runtime
+
+
+def test_a_new_mapping_session_is_not_judged_by_the_previous_sessions_lap_state():
+    # Second map-start on the same supervisor: tick() runs check_faults before the start action
+    # has reset lap_started, so the old True must not count for the new session.
+    runtime = mapping_stub(session=3, mapping_session="boot-1")
+    assert not runtime.lap_active
+    runtime.check_faults(time.monotonic())
+    assert runtime.supervisor.state == State.MAPPING
+
+
+def test_the_mapping_pose_check_still_stops_a_session_whose_lap_has_started():
+    runtime = mapping_stub(session=3, mapping_session="boot-3")
+    assert runtime.lap_active
+    runtime.check_faults(time.monotonic())
+    assert runtime.supervisor.state == State.STOPPED

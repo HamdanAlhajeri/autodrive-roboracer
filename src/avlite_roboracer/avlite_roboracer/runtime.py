@@ -132,6 +132,7 @@ class Runtime:
         self.speed = SpeedDemand(0.0)
         self.lap = LapDetector()
         self.lap_started = False
+        self.mapping_session = None  # the session start_mapping last set up
         self.stopping_after_lap = False
         self.stopped_since = None
         self._pose_seen = {}  # frame -> (latest transform stamp, monotonic time it first arrived)
@@ -191,6 +192,17 @@ class Runtime:
                                f"{self.supervisor.session}")
 
     # -------------------------------------------------------------- callbacks
+    @property
+    def lap_active(self):
+        """True once this session's mapping lap has started.
+
+        tick() checks faults before it runs the start action that resets the lap state, so a
+        second mapping session on the same supervisor still saw the previous session's
+        lap_started flag and was faulted for a missing map pose before it had begun (23 Nov).
+        """
+        return bool(self.lap_started
+                    and getattr(self, "mapping_session", None) == self.supervisor.session)
+
     def reset_scan_stats(self):
         """Counters for the stale-LiDAR diagnosis: scans seen, rejected, and header-stamp lag."""
         self.scan_stats = {"seen": 0, "rejected": 0, "lag_last_s": None, "lag_max_s": 0.0}
@@ -343,7 +355,7 @@ class Runtime:
         scan_age, odom_age = self.ages(now)
         return {
             "localization": self.monitor.snapshot(now) if self.monitor else None,
-            "mapping_lap": self.lap.summary() if self.lap_started else None,
+            "mapping_lap": self.lap.summary() if self.lap_active else None,
             "finalize_step": self.finalize_step,
             "localizer": self.localization_source,
             "icp_alignment": self.icp.alignment if self.icp is not None else None,
@@ -466,7 +478,7 @@ class Runtime:
         if map_pose is None or odom_pose is None:
             return False
         state = self.supervisor.state
-        if state == State.MAPPING and self.lap_started:
+        if state == State.MAPPING and self.lap_active:
             result = self.lap.update(map_pose[:3], odom_pose[:3], list(scan.ranges))
             if result == "complete":
                 self.supervisor.lap_completed(now)
@@ -510,7 +522,7 @@ class Runtime:
                 failures = [f for f in self.monitor.failures(now) if "stable for only" not in f]
                 if failures:
                     self.supervisor.fault("lost localization: " + "; ".join(failures), now)
-            elif state == State.MAPPING and self.lap_started:
+            elif state == State.MAPPING and self.lap_active:
                 poses = (self.pose("map"), self.pose("odom"))
                 if any(p is None or not 0 <= p[3] <= self.profile.get("timing.pose_timeout_s")
                        for p in poses):
@@ -587,6 +599,7 @@ class Runtime:
         self.speed = SpeedDemand(self.profile.get("limits.mapping_speed_mps"))
         self.lap = LapDetector(self.lap_settings)
         self.lap_started = False
+        self.mapping_session = self.supervisor.session
         self.stopping_after_lap = False
         params = effective_parameters(self.slam_params, self.profile, "mapping",
                                       self.session_dir / "slam_mapping.yaml")
