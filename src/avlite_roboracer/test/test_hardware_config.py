@@ -296,3 +296,87 @@ def test_deadman_fault_says_whether_the_button_was_released_or_the_joystick_went
     released = actuator_failures((0.0, logic.status(1.31)), 0.1, 0.5, require_deadman=True)
     assert "button NOT pressed" in released[0] and "1 with the button not pressed" in released[0]
     assert "last release 0.01 s ago" in released[0]
+
+
+def stop_on_press_logic():
+    return ActuatorLogic(commissioned_profile(**{"deadman.stop_on_press": True}))
+
+
+def test_stop_on_press_runs_without_holding_the_button_while_the_joystick_publishes():
+    logic = stop_on_press_logic()
+    for step in range(0, 40):
+        now = step * 0.01
+        logic.receive_joystick(RELEASED, now)  # pad publishes, button up
+        logic.receive_command(MOVE, 0.0, now)
+        assert logic.tick(now) == pytest.approx((0.1, 1.0))
+    assert logic.status(0.39)["deadman_held"] and not logic.status(0.39)["stop_latched"]
+
+
+def test_stop_on_press_pressing_the_button_stops_at_once_and_stays_stopped():
+    logic = stop_on_press_logic()
+    logic.receive_joystick(RELEASED, 0.0)
+    logic.receive_command(MOVE, 0.0, 0.0)
+    assert logic.tick(0.01) == pytest.approx((0.1, 1.0))
+    logic.receive_joystick(HELD, 0.02)   # the press
+    logic.receive_joystick(RELEASED, 0.03)  # released again straight away
+    logic.receive_command(MOVE, 0.0, 0.03)  # the supervisor has not noticed yet
+    assert logic.tick(0.04) == (0.0, 0.0) and logic.state == "stopping"
+    assert logic.status(0.04)["stop_latched"] and not logic.status(0.04)["deadman_held"]
+    # While the supervisor keeps sending motion, releasing the button does not resume.
+    for step in range(5, 20):
+        now = step * 0.01
+        logic.receive_joystick(RELEASED, now)
+        logic.receive_command(MOVE, 0.0, now)
+        assert logic.tick(now) == (0.0, 0.0)
+    assert logic.status(0.19)["stop_latched"]
+
+
+def test_stop_on_press_latch_clears_only_after_motion_commands_stop():
+    logic = stop_on_press_logic()
+    logic.receive_joystick(RELEASED, 0.0)
+    logic.receive_command(MOVE, 0.0, 0.0)
+    logic.tick(0.01)
+    logic.receive_joystick(HELD, 0.02)
+    logic.tick(0.03)
+    assert logic.stop_latched
+    # The button is still down: the latch holds even with no commands.
+    logic.receive_joystick(HELD, 0.50)
+    logic.tick(0.60)
+    assert logic.stop_latched
+    # Button up and no motion command for longer than the timeout: cleared.
+    logic.receive_joystick(RELEASED, 0.70)
+    logic.tick(0.71)
+    assert not logic.stop_latched and logic.status(0.71)["deadman_held"]
+    logic.receive_command(MOVE, 0.0, 0.72)  # a new session may now move
+    logic.receive_joystick(RELEASED, 0.72)
+    assert logic.tick(0.73) == pytest.approx((0.1, 1.0)) or logic.state == "stopping"
+
+
+def test_stop_on_press_still_stops_when_the_joystick_goes_silent():
+    logic = stop_on_press_logic()
+    logic.receive_joystick(RELEASED, 0.0)
+    for step in range(1, 40):
+        now = step * 0.01
+        logic.receive_command(MOVE, 0.0, now)
+        expected = (0.0, 0.0) if now > 0.25 else pytest.approx((0.1, 1.0))
+        assert logic.tick(now) == expected
+    assert not logic.status(0.39)["deadman_held"]
+
+
+def test_stop_on_press_needs_a_joystick_message_before_it_moves_at_all():
+    logic = stop_on_press_logic()
+    logic.receive_command(MOVE, 0.0, 0.0)
+    logic.state = "active"
+    assert logic.tick(0.01) == (0.0, 0.0)  # no /joy yet: refused
+
+
+def test_stop_on_press_is_reported_as_a_stop_not_a_release():
+    status = (0.0, {"fault": None, "manual_override": False, "deadman_held": False,
+                    "stop_latched": True})
+    assert actuator_failures(status, 0.1, 0.5, require_deadman=True) == ["stop button pressed"]
+
+
+def test_stop_on_press_profile_value_must_be_true_or_false():
+    assert commissioned_profile(**{"deadman.stop_on_press": True}).get("deadman.stop_on_press")
+    with pytest.raises(ValueError, match="stop_on_press"):
+        commissioned_profile(**{"deadman.stop_on_press": "yes"})

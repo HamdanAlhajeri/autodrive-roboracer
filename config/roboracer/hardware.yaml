@@ -69,6 +69,9 @@ deadman:
   topic: /joy                 # sensor_msgs/Joy from joy_node
   button: 1                # buttons[] index the operator holds during autonomy
   timeout_s: 0.25             # joy_node must publish at least this often (autorepeat)
+  # false: hold the button to run (releasing stops the car). true: no need to hold; the car runs while
+  # the joystick keeps publishing, pressing the button stops it, and a silent joystick stops it.
+  stop_on_press: false
 
 timing:
   command_timeout_s: 0.25     # Actuator stops if no fresh supervisor command arrives.

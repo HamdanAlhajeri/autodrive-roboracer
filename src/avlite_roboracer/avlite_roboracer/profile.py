@@ -103,6 +103,8 @@ class HardwareProfile:
         if button is not None and (isinstance(button, bool) or not isinstance(button, int)
                                    or button < 0):
             raise ValueError("deadman.button must be a non-negative buttons[] index or null")
+        if _get(self.data, "deadman.stop_on_press") not in (None, True, False):
+            raise ValueError("deadman.stop_on_press must be true or false")
         alignment = _get(self.data, "localization.min_scan_alignment")
         if alignment is not None and not 0 < alignment <= 1:
             raise ValueError("localization.min_scan_alignment must be in (0, 1]")

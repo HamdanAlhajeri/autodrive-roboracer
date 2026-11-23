@@ -40,7 +40,10 @@ def actuator_failures(actuator, now, timeout_s, require_deadman=False):
     if status.get("manual_override"):
         failures.append("manual override engaged")
     if require_deadman and not status.get("deadman_held"):
-        failures.append("dead-man button released or joystick silent" + _joy_detail(status))
+        if status.get("stop_latched"):
+            failures.append("stop button pressed")
+        else:
+            failures.append("dead-man button released or joystick silent" + _joy_detail(status))
     return failures
 
 

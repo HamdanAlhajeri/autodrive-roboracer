@@ -30,7 +30,7 @@ DEFAULT_PROFILE = Path(__file__).resolve().parents[3] / "config" / "roboracer" /
 
 # Keys beyond the autonomy measurements that may be set from here.
 EXTRA_KEYS = (
-    "steering.center_offset_rad", "topics.imu", "frames.imu", "deadman.timeout_s",
+    "steering.center_offset_rad", "topics.imu", "frames.imu", "deadman.timeout_s", "deadman.stop_on_press",
     "localization.scan_alignment_tolerance_m", "localization.stable_duration_s",
     "timing.command_timeout_s", "timing.authorization_timeout_s",
     "timing.sensor_timeout_s", "timing.pose_timeout_s",

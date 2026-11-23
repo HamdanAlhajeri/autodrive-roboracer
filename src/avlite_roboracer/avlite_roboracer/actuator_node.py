@@ -10,6 +10,12 @@ Autonomous commands pass only while the operator holds the dead-man button on a 
 that keeps publishing (deadman.* in the profile); a release or a silent joystick stops
 the car exactly like an expired command.
 
+Optional deadman.stop_on_press (default false): the operator does not have to hold the button.
+The car runs while the joystick keeps publishing, a press of the button stops it at once (the
+stop is latched until the supervisor has stopped sending motion), and a silent joystick still
+stops it. A joystick that goes silent, whether the pad sleeps, loses its battery or the receiver
+drops, is the only protection against a lost link in this mode, so test it before relying on it.
+
 A fresh nonzero manual command on topics.manual_input overrides autonomy: it is forwarded
 and reported, and the supervisor stops its session. SSH or process loss is not a physical
 stop; the car's independent emergency stop/manual override must remain available.
@@ -43,6 +49,10 @@ class ActuatorLogic:
         self.fault = None
         self.deadman_timeout_s = profile.get("deadman.timeout_s", 0.25)
         self.deadman_time = -math.inf
+        self.stop_on_press = bool(profile.get("deadman.stop_on_press", False))
+        self.stop_latched = False     # stop_on_press: a press stops the car until motion ends
+        self.button_down = False
+        self.last_motion_command_time = -math.inf
         # Evidence for "released or silent": what the last /joy message said and how long ago.
         self.joy_time = -math.inf
         self.joy_messages = self.joy_releases = 0
@@ -62,6 +72,7 @@ class ActuatorLogic:
         self.watchdog.feed(command, now)
         if not command.is_stop:
             self.state = "active"
+            self.last_motion_command_time = now
 
     def receive_manual(self, steering, speed, now):
         if all(math.isfinite(v) for v in (steering, speed)):
@@ -79,6 +90,15 @@ class ActuatorLogic:
         self.joy_time = now
         self.joy_messages += 1
         self.joy_button_pressed = pressed
+        if self.stop_on_press:
+            self.button_down = pressed
+            if pressed:
+                self.stop_latched = True
+            else:
+                self.joy_releases += 1
+                self.last_release_time = now
+            self.deadman_time = now  # the joystick link is alive
+            return
         if pressed:
             if self.held_since is None or not self.deadman_held(now):
                 self.held_since = now
@@ -90,13 +110,21 @@ class ActuatorLogic:
             self.deadman_time = -math.inf
 
     def deadman_held(self, now):
-        """True while the last joystick message, no older than the timeout, held the button."""
-        return 0 <= now - self.deadman_time <= self.deadman_timeout_s
+        """True while the operator authorizes motion.
+
+        Hold mode: the last joystick message, no older than the timeout, held the button.
+        Stop-on-press mode: the joystick is publishing and the stop button has not been pressed.
+        """
+        fresh = 0 <= now - self.deadman_time <= self.deadman_timeout_s
+        return fresh and not self.stop_latched if self.stop_on_press else fresh
 
     def tick(self, now, competing_publishers=0):
         """Return the Ackermann (steering, speed) to publish, or None to stay silent."""
         if not self.commissioned:
             return None  # Without measured conversion, never publish to the driver.
+        if (self.stop_latched and not self.button_down
+                and now - self.last_motion_command_time > self.watchdog.timeout_s):
+            self.stop_latched = False  # the supervisor has stopped sending motion
         if now - self.manual_time > self.watchdog.timeout_s:
             self.manual = None
         if self.manual_override:
@@ -130,6 +158,7 @@ class ActuatorLogic:
         return {"state": self.state, "fault": self.fault,
                 "manual_override": self.manual_override,
                 "deadman_held": self.deadman_held(now),
+                "stop_on_press": self.stop_on_press, "stop_latched": self.stop_latched,
                 "joy_age_s": self._age(self.joy_time, now),
                 "joy_button_pressed": self.joy_button_pressed,
                 "joy_messages": self.joy_messages, "joy_releases": self.joy_releases,
