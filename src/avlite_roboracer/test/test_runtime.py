@@ -15,7 +15,13 @@ from roboracer_fixtures import commissioned_profile
 
 @pytest.mark.parametrize("stamp,previous,now,expected", [
     (100, None, 110, True), (100, 100, 110, False), (100, 101, 110, False),
-    (100, None, 90, False), (100, None, 1000000100, False), (0, None, 0, False),
+    (100, None, 1000000100, False), (0, None, 0, False),
+    # The Hokuyo stamps scans about 1 ms ahead of the Jetson clock: that must be accepted.
+    (10_001_000_000, None, 10_000_000_000, True),
+    (10_001_000_000, 10_000_000_000, 10_000_000_000, True),
+    # A stamp well ahead of the clock (a wrong clock) or too old is still refused.
+    (10_500_000_000, None, 10_000_000_000, False),
+    (9_000_000_000, None, 10_000_000_000, False),
 ])
 def test_sensor_source_timestamps_must_advance_and_be_fresh(stamp, previous, now, expected):
     assert sensor_stamp_is_fresh(stamp, previous, now, 0.5) is expected

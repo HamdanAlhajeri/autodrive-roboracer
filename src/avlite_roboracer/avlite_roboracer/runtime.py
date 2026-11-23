@@ -46,9 +46,20 @@ from .supervisor import Action, State, Supervisor
 CONTROL_DT = 0.05
 
 
+# How far ahead of this computer's clock a sensor stamp may be. The Hokuyo stamps its scans
+# about 1 ms ahead of the Jetson clock, so a strict "age must not be negative" test rejected
+# 96 % of them and the stale-LiDAR stop fired at every mapping start (23 Nov). The upper limit
+# (the sensor timeout) is not loosened, and a stamp further ahead than this is still refused.
+CLOCK_TOLERANCE_S = 0.05
+
+
 def sensor_stamp_is_fresh(stamp_ns, previous_ns, now_ns, timeout_s):
+    """True for a newer-than-previous stamp that is at most timeout_s old at now_ns.
+
+    A stamp up to CLOCK_TOLERANCE_S ahead of now_ns counts as brand new (clock jitter).
+    """
     return (stamp_ns > 0 and (previous_ns is None or stamp_ns > previous_ns)
-            and 0 <= (now_ns - stamp_ns) * 1e-9 <= timeout_s)
+            and -CLOCK_TOLERANCE_S <= (now_ns - stamp_ns) * 1e-9 <= timeout_s)
 
 
 class FinalizeCancelled(Exception):
