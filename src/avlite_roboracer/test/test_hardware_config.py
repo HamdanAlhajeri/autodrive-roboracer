@@ -237,3 +237,44 @@ def test_commissioning_measures_latency_and_stopping():
     # The car speeds up at 2 m/s^2 once it responds (the 0.02 per 10 ms step in the simulation above).
     assert start["acceleration_mps2"] == pytest.approx(2.0, rel=0.1)
     assert suggestion["measurements.max_acceleration_mps2"] == pytest.approx(2.0, rel=0.1)
+
+
+def _teleop_records(events, seconds=20.0, latency=0.1):
+    """Records for a car that follows the commanded speed (2 m/s^2, 0.1 s latency)."""
+    records, speed, x = [], 0.0, 0.0
+    for i in range(int(seconds * 100)):
+        t = i * 0.01
+        if i % 2 == 0:
+            commanded = next((v for at, v in reversed(events) if t >= at - 1e-9), 0.0)
+            records.append({"kind": "drive", "rx_ns": int(t * 1e9), "stamp_ns": int(t * 1e9),
+                            "speed": commanded, "steering": 0.0})
+        target = next((v for at, v in reversed(events) if t >= at + latency), 0.0)
+        speed += max(-0.02, min(0.02, target - speed))
+        x += speed * 0.01
+        records.append({"kind": "odom", "rx_ns": int(t * 1e9), "stamp_ns": int(t * 1e9),
+                        "vx": speed, "x": x, "y": 0.0})
+    return records
+
+
+def test_commissioning_ignores_stick_chatter_and_starts_while_rolling():
+    # Clean push 1 to 4 s. Second push at 8 s, released at 10 s, but the driver pushes again at
+    # 10.2 s while the car is still rolling (an interrupted stop, then a start from motion).
+    events = [(1.0, 1.0), (4.0, 0.0), (8.0, 1.0), (10.0, 0.0), (10.2, 1.0), (13.0, 0.0)]
+    result = analyze(_teleop_records(events))
+    flags = [s["interrupted"] for s in result["stops"]]
+    assert flags == [False, True, False]
+    assert [s["from_rest"] for s in result["starts"]] == [True, True, False]
+    suggestion = result["suggested_profile"]
+    # Only clean events count: the braking value is the clean 2 m/s^2, not the interrupted stop's.
+    assert suggestion["measurements.braking_deceleration_mps2"] == pytest.approx(2.0, rel=0.1)
+    assert suggestion["measurements.command_latency_s"] < 0.3
+    assert suggestion["stop_events"] == 2
+
+
+def test_commissioning_with_only_chatter_suggests_no_braking_values():
+    events = [(1.0, 1.0), (3.0, 0.0), (3.2, 1.0), (5.0, 0.0), (5.2, 1.0)]
+    result = analyze(_teleop_records(events, seconds=6.0))
+    suggestion = result["suggested_profile"]
+    assert all(s["interrupted"] for s in result["stops"])
+    assert "measurements.braking_deceleration_mps2" not in suggestion
+    assert "measurements.stopping_distance_m" not in suggestion

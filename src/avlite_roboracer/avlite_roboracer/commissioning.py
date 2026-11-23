@@ -5,6 +5,11 @@ low speed (manual teleop or the actuator test). Each event is measured from the 
 stamp to the odometry response. The suggested profile values are the worst observed
 cases; review them before copying them into config/roboracer/hardware.yaml.
 
+Only clean events count. A start that begins while the car is still rolling, and a stop in
+which the driver pushes the stick again before the car has halted ("stick chatter"), say
+nothing about latency or braking, so they are reported with a flag and left out of the
+suggested values. If too few clean events remain, the value is None and the run must be repeated.
+
     python -m avlite_roboracer.commissioning records.jsonl --output commissioning.json
 """
 
@@ -61,7 +66,9 @@ def analyze(records, moving_mps=0.3, stopped_mps=0.05, response_mps=0.1, window_
         if before <= stopped_mps < moving_mps <= after:
             response = next((o for o in _after(odom, t1)
                              if o[1] >= response_mps and o[0] - t1 <= window_s), None)
-            starts.append({"t": t1, "commanded_mps": after,
+            earlier = [o for o in odom if o[0] <= t1]
+            from_rest = bool(earlier) and abs(earlier[-1][1]) <= response_mps
+            starts.append({"t": t1, "commanded_mps": after, "from_rest": from_rest,
                            "latency_s": None if response is None else response[0] - t1,
                            "acceleration_mps2": _acceleration(odom, response, t1, after, window_s)})
         elif before >= moving_mps and after <= stopped_mps:
@@ -76,7 +83,9 @@ def analyze(records, moving_mps=0.3, stopped_mps=0.05, response_mps=0.1, window_
                 if halted is not None and a[0] >= halted[0]:
                     break
                 distance += math.hypot(b[2] - a[2], b[3] - a[3])
-            event = {"t": t1, "initial_speed_mps": v0,
+            until = halted[0] if halted is not None else t1 + window_s
+            interrupted = any(t1 < t <= until and speed > stopped_mps for t, speed in drive)
+            event = {"t": t1, "initial_speed_mps": v0, "interrupted": interrupted,
                      "latency_s": None if responding is None else responding[0] - t1,
                      "stop_time_s": None if halted is None else halted[0] - t1,
                      "stopping_distance_m": distance if halted is not None else None}
@@ -90,9 +99,11 @@ def analyze(records, moving_mps=0.3, stopped_mps=0.05, response_mps=0.1, window_
 def suggest(starts, stops):
     """Worst observed values; None where no complete event supports a value."""
     complete = [s for s in stops if s["stopping_distance_m"] is not None
-                and s.get("deceleration_mps2")]
-    latencies = [e["latency_s"] for e in starts + stops if e["latency_s"] is not None]
-    accelerations = [s["acceleration_mps2"] for s in starts if s.get("acceleration_mps2")]
+                and s.get("deceleration_mps2") and not s.get("interrupted")]
+    clean_starts = [s for s in starts if s.get("from_rest", True)]
+    clean_stops = [s for s in stops if not s.get("interrupted")]
+    latencies = [e["latency_s"] for e in clean_starts + clean_stops if e["latency_s"] is not None]
+    accelerations = [s["acceleration_mps2"] for s in clean_starts if s.get("acceleration_mps2")]
     # The slowest start is the one the plan may rely on, so the lowest value is suggested.
     acceleration = min(accelerations) if accelerations else None
     if not complete:
