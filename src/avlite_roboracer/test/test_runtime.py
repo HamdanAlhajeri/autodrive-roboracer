@@ -7,6 +7,7 @@ from unittest.mock import Mock
 import pytest
 
 from avlite_roboracer.command import CommandArbiter, CommandSource, SpeedDemand
+from avlite_roboracer import runtime as runtime_module
 from avlite_roboracer.runtime import Runtime, sensor_stamp_is_fresh
 from avlite_roboracer.supervisor import State, Supervisor
 from roboracer_fixtures import commissioned_profile
@@ -90,3 +91,15 @@ def test_cancelled_worker_cannot_mark_a_later_session_ready():
     runtime.finalize(threading.Event(), old_session)
     assert runtime.supervisor.state == State.MAPPING
     assert runtime.supervisor.plan is None
+
+
+def test_warm_up_imports_what_is_installed_and_names_what_is_not(monkeypatch):
+    # The first control tick must not pay for importing AVLite: that stalled the scan callbacks
+    # for about 0.6 s on the Jetson and tripped the stale-LiDAR stop when mapping started.
+    monkeypatch.setattr(runtime_module, "WARM_UP_MODULES", ("json", "no_such_module_for_warm_up"))
+    messages = []
+    skipped = runtime_module.warm_up_imports(messages.append)
+    assert skipped == ["no_such_module_for_warm_up"]
+    assert len(messages) == 1 and "warm-up imports took" in messages[0]
+    assert "no_such_module_for_warm_up" in messages[0]
+    assert runtime_module.warm_up_imports() == ["no_such_module_for_warm_up"]

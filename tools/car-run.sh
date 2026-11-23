@@ -115,11 +115,11 @@ start_stack() {
     local i
     for i in $(seq 1 60); do
         local topics; topics="$(timeout 5 ros2 topic list 2>/dev/null)"
-        grep -qx /scan <<<"$topics" && grep -qx /odom <<<"$topics" && break
+        grep -qx /scan <<<"$topics" && grep -qx /odom <<<"$topics"             && grep -qx /drive <<<"$topics" && grep -qx /joy <<<"$topics" && break
         sleep 1
     done
-    grep -qx /scan <<<"${topics:-}" || die 2 "the bringup did not publish /scan and /odom within 60 s. See $LOGDIR/bringup.log"
-    note "bringup is publishing /scan and /odom"
+    grep -qx /scan <<<"${topics:-}" && grep -qx /odom <<<"${topics:-}"         && grep -qx /drive <<<"${topics:-}" && grep -qx /joy <<<"${topics:-}"         || die 2 "the bringup did not publish /scan, /odom, /drive and /joy within 60 s. See $LOGDIR/bringup.log"
+    note "bringup is publishing /scan, /odom, /drive and /joy"
     setsid bash "$REPO/tools/jetson-run.sh" launch >"$LOGDIR/supervisor.log" 2>&1 &
     STACK_PIDS+=($!)
     for i in $(seq 1 90); do status_reachable && break; sleep 1; done
@@ -140,6 +140,12 @@ set_laps() {
 }
 
 # ---------------------------------------------------------------- 1. preflight
+# With --start-stack the bringup must be up before the preflight looks for its topics, or the
+# preflight always fails on a car where nothing runs yet. Starting it moves nothing: the
+# supervisor stays IDLE and sends no commands.
+if [[ "$START_STACK" == 1 && "$PREFLIGHT" == 1 ]] && ! status_reachable; then
+    start_stack
+fi
 say "1/6 Preflight"
 if [[ "$PREFLIGHT" == 1 ]]; then
     if bash "$CAR_DAY" >"$LOGDIR/preflight.log" 2>&1; then

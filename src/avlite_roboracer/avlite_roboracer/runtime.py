@@ -504,6 +504,7 @@ class Runtime:
                 self.grid = self.icp = None
 
     def start_mapping(self, now):
+        began = time.monotonic()
         from avlite_autodrive.plugin.controller import AutoDRIVEFollowTheGap
         self.stop_slam()  # a previous session's localization process
         self.prepared = self.racer = self.grid = self.icp = None
@@ -530,8 +531,14 @@ class Runtime:
         self.stopping_after_lap = False
         params = effective_parameters(self.slam_params, self.profile, "mapping",
                                       self.session_dir / "slam_mapping.yaml")
+        prepared_s = time.monotonic() - began
         self.slam.start("mapping", params)
         self.arbiter.select(CommandSource.MAPPING)
+        total_s = time.monotonic() - began
+        # Scans are not processed while this runs; a slow start shows up here first.
+        self.node.get_logger().info(
+            f"mapping start took {total_s:.3f} s (setup {prepared_s:.3f} s, SLAM launch "
+            f"{total_s - prepared_s:.3f} s)")
 
     def sensor_frame(self, now, scan=None):
         from avlite.c50_common.c52_world_sensor_datatypes import Lidar
@@ -780,6 +787,42 @@ class Runtime:
         self.stop_slam()
 
 
+WARM_UP_MODULES = (
+    "avlite.c10_perception.c11_perception_model",
+    "avlite.c50_common.c52_world_sensor_datatypes",
+    "avlite.c30_control.c39_settings",
+    "avlite_autodrive.sensors",
+    "avlite_autodrive.plugin.controller",
+    "avlite_autodrive.plugin.planned_controller",
+    "avlite_autodrive.race_planning",
+    "avlite_autodrive.avlite_localization",
+    "slam_toolbox.srv",
+)
+
+
+def warm_up_imports(log=None):
+    """Import the heavy AVLite and SLAM modules before the control loop starts.
+
+    The control step imports them the first time it needs them. On the Jetson that first
+    import took about 0.6 s inside a control tick, long enough to starve the scan callbacks
+    and trip the 0.25 s stale-LiDAR safety stop the moment mapping started (23 Nov). Doing it
+    here, while the car is idle and nothing is authorized, moves that cost out of the tick.
+    A module that is not installed is skipped: the step that needs it reports it then.
+    """
+    import importlib
+    started = time.monotonic()
+    skipped = []
+    for name in WARM_UP_MODULES:
+        try:
+            importlib.import_module(name)
+        except ImportError:
+            skipped.append(name)
+    if log is not None:
+        log(f"warm-up imports took {time.monotonic() - started:.2f} s"
+            + (f"; not available: {', '.join(skipped)}" if skipped else ""))
+    return skipped
+
+
 def main(argv=None):
     import rclpy
     from rclpy.node import Node
@@ -796,6 +839,7 @@ def main(argv=None):
     profile = HardwareProfile.load(options.profile)
     rclpy.init(args=ros_args, signal_handler_options=SignalHandlerOptions.NO)
     node = Node("roboracer_supervisor")
+    warm_up_imports(node.get_logger().info)
     runtime = Runtime(node, profile, options.race_config, options.slam_params,
                       options.data_dir, options.socket or default_socket_path())
     stopped = False
