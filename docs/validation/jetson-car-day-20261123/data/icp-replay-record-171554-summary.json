@@ -1,0 +1,31 @@
+{
+  "scans_replayed": 3774,
+  "scans_skipped_no_odometry": 0,
+  "duration_s": 94.4,
+  "start_pose": [
+    3.324,
+    5.887,
+    2.259
+  ],
+  "alignment_mean": 0.983,
+  "alignment_median": 0.993,
+  "alignment_p5": 0.937,
+  "alignment_min": 0.756,
+  "share_of_scans_below_lost_threshold": 0.0,
+  "lost_threshold": 0.5,
+  "recoveries": 0,
+  "recovery_tries": 0,
+  "icp_path_m": 18.21,
+  "odom_path_m": 13.83,
+  "odom_to_icp_distance_ratio": 0.759,
+  "icp_net_turn_deg": 326.5,
+  "odom_net_turn_deg": 226.4,
+  "odom_to_icp_net_turn_ratio": 0.693,
+  "icp_total_turn_deg": 485.2,
+  "odom_total_turn_deg": 236.8,
+  "odom_to_icp_total_turn_ratio": 0.488,
+  "icp_start_to_end_m": 1.04,
+  "icp_pose_jumps_over_0_5m": 0,
+  "start_search_alignment": 0.993,
+  "start_search_runner_up_alignment": 0.587
+}

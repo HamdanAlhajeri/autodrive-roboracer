@@ -1,0 +1,5 @@
+Nov 23 17:03:37 localhost.localdomain kernel: usb 1-2.1: USB disconnect, device number 4
+Nov 23 17:03:43 localhost.localdomain kernel: usb 1-2.2: USB disconnect, device number 5
+Nov 23 18:32:59 localhost.localdomain kernel: tegra-xusb 3610000.usb: WARN Event TRB for slot 4 ep 2 with no TDs queued?
+Nov 23 18:32:59 localhost.localdomain kernel: usb 1-2.3: USB disconnect, device number 7
+Nov 23 18:51:39 localhost.localdomain kernel: usb 1-2.3: USB disconnect, device number 8

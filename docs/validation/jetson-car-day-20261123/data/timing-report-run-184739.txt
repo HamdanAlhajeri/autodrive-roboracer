@@ -1,0 +1,34 @@
+tick timing: 1718 ticks, mean 16 ms, longest 23 ms, longest gap between ticks 136 ms; most time in 'control' (87%, max 22 ms)
+8213 samples of the supervisor thread (every 10 ms)
+innermost frame:
+  68.1%  executors.py:_wait_for_ready_callbacks:781
+   8.3%  controller.py:_corridor_clearances:99
+   5.2%  controller.py:_corridor_clearances:105
+   5.1%  controller.py:_corridor_clearances:101
+   2.3%  runtime.py:log_icp:444
+   1.4%  controller.py:_corridor_clearances:111
+   1.2%  fromnumeric.py:_wrapreduction:86
+   1.0%  controller.py:_corridor_clearances:112
+   1.0%  controller.py:_corridor_clearances:106
+   0.9%  controller.py:_corridor_clearances:104
+   0.7%  subprocess.py:_wait:2047
+   0.6%  sensors.py:scan_cloud:24
+   0.5%  c52_world_sensor_datatypes.py:_transform:106
+   0.4%  _ufunclike_impl.py:isposinf:131
+   0.4%  c52_world_sensor_datatypes.py:_transform:107
+call stacks (innermost first):
+  68.1%  executors.py:_wait_for_ready_callbacks:781 < executors.py:wait_for_ready_callbacks:877 < executors.py:_spin_once_impl:907 < executors.py:spin_once:926
+   5.5%  controller.py:_corridor_clearances:99 < controller.py:largest_gap_target:173 < c35_pure_pursuit.py:control:242 < controller.py:control:268
+   5.1%  controller.py:_corridor_clearances:105 < controller.py:largest_gap_target:173 < c35_pure_pursuit.py:control:242 < controller.py:control:268
+   4.9%  controller.py:_corridor_clearances:101 < controller.py:largest_gap_target:173 < c35_pure_pursuit.py:control:242 < controller.py:control:268
+   2.8%  controller.py:_corridor_clearances:99 < controller.py:largest_gap_target:202 < c35_pure_pursuit.py:control:242 < controller.py:control:268
+   2.3%  runtime.py:log_icp:444 < runtime.py:on_new_scan:465 < runtime.py:tick:374 < executors.py:await_or_execute:115
+   1.4%  controller.py:_corridor_clearances:111 < controller.py:largest_gap_target:173 < c35_pure_pursuit.py:control:242 < controller.py:control:268
+   1.0%  controller.py:_corridor_clearances:112 < controller.py:largest_gap_target:173 < c35_pure_pursuit.py:control:242 < controller.py:control:268
+   1.0%  controller.py:_corridor_clearances:106 < controller.py:largest_gap_target:173 < c35_pure_pursuit.py:control:242 < controller.py:control:268
+   0.8%  controller.py:_corridor_clearances:104 < controller.py:largest_gap_target:173 < c35_pure_pursuit.py:control:242 < controller.py:control:268
+   0.7%  subprocess.py:_wait:2047 < subprocess.py:wait:1264 < slam.py:stop:92 < runtime.py:stop_slam:304
+   0.6%  sensors.py:scan_cloud:24 < runtime.py:sensor_frame:613 < runtime.py:control:633 < runtime.py:tick:386
+   0.5%  c52_world_sensor_datatypes.py:_transform:106 < c52_world_sensor_datatypes.py:to_base:85 < c35_pure_pursuit.py:to_ego_frame:285 < c35_pure_pursuit.py:control:229
+   0.5%  fromnumeric.py:_wrapreduction:86 < fromnumeric.py:min:3302 < controller.py:_corridor_clearances:106 < controller.py:largest_gap_target:173
+   0.4%  fromnumeric.py:_wrapreduction:86 < fromnumeric.py:min:3302 < controller.py:_corridor_clearances:112 < controller.py:largest_gap_target:173

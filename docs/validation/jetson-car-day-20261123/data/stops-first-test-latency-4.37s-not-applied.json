@@ -1,0 +1,255 @@
+{
+  "starts": [
+    {
+      "t": 1795441489.9391935,
+      "commanded_mps": 0.6752090454101562,
+      "latency_s": 0.26480722427368164,
+      "acceleration_mps2": null
+    },
+    {
+      "t": 1795441674.60419,
+      "commanded_mps": 0.8415811657905579,
+      "latency_s": 0.07974815368652344,
+      "acceleration_mps2": null
+    },
+    {
+      "t": 1795441792.0752366,
+      "commanded_mps": 1.0,
+      "latency_s": 0.2286989688873291,
+      "acceleration_mps2": 3.9820769234351197
+    },
+    {
+      "t": 1795441795.9036126,
+      "commanded_mps": 0.8811935782432556,
+      "latency_s": 0.24030661582946777,
+      "acceleration_mps2": 4.758051885553938
+    },
+    {
+      "t": 1795441797.491378,
+      "commanded_mps": 1.0,
+      "latency_s": 0.2326042652130127,
+      "acceleration_mps2": 4.020434626563516
+    },
+    {
+      "t": 1795441799.30337,
+      "commanded_mps": 0.4296121299266815,
+      "latency_s": 0.24065566062927246,
+      "acceleration_mps2": null
+    },
+    {
+      "t": 1795441801.4236035,
+      "commanded_mps": 1.0,
+      "latency_s": 0.24041438102722168,
+      "acceleration_mps2": 4.399661905922639
+    },
+    {
+      "t": 1795441803.1117835,
+      "commanded_mps": 1.0,
+      "latency_s": 0.23217034339904785,
+      "acceleration_mps2": 4.0143027119044685
+    },
+    {
+      "t": 1795441804.7792578,
+      "commanded_mps": 1.0,
+      "latency_s": 0.22467541694641113,
+      "acceleration_mps2": 4.044452219654983
+    },
+    {
+      "t": 1795441806.5041242,
+      "commanded_mps": 1.0,
+      "latency_s": 0.23975563049316406,
+      "acceleration_mps2": 3.8930362271942434
+    },
+    {
+      "t": 1795441808.0680552,
+      "commanded_mps": 1.0,
+      "latency_s": 0.07589244842529297,
+      "acceleration_mps2": null
+    }
+  ],
+  "stops": [
+    {
+      "t": 1795441357.3169024,
+      "initial_speed_mps": 0.0,
+      "latency_s": null,
+      "stop_time_s": 0.007505178451538086,
+      "stopping_distance_m": 0.0
+    },
+    {
+      "t": 1795441395.6381938,
+      "initial_speed_mps": 0.7774165583008236,
+      "latency_s": 0.045812129974365234,
+      "stop_time_s": 0.08586478233337402,
+      "stopping_distance_m": 0.03508115135413961,
+      "deceleration_mps2": 14.67509136801686
+    },
+    {
+      "t": 1795441433.3757732,
+      "initial_speed_mps": -0.8205461638491548,
+      "latency_s": 4.368144273757935,
+      "stop_time_s": 0.008206844329833984,
+      "stopping_distance_m": 0.0
+    },
+    {
+      "t": 1795441453.1207297,
+      "initial_speed_mps": 0.9022540095361942,
+      "latency_s": 0.06323647499084473,
+      "stop_time_s": 0.48321533203125,
+      "stopping_distance_m": 0.193098251230819,
+      "deceleration_mps2": 1.8923692940051107
+    },
+    {
+      "t": 1795441485.6495864,
+      "initial_speed_mps": 0.8810143042912874,
+      "latency_s": 0.06943798065185547,
+      "stop_time_s": 0.4747121334075928,
+      "stopping_distance_m": 0.20762720500802037,
+      "deceleration_mps2": 1.9155746661639792
+    },
+    {
+      "t": 1795441488.8255198,
+      "initial_speed_mps": 0.054833116601647164,
+      "latency_s": null,
+      "stop_time_s": 0.19847393035888672,
+      "stopping_distance_m": 0.012184315850238697
+    },
+    {
+      "t": 1795441489.205896,
+      "initial_speed_mps": 0.0,
+      "latency_s": null,
+      "stop_time_s": 0.018105745315551758,
+      "stopping_distance_m": 0.0
+    },
+    {
+      "t": 1795441489.705853,
+      "initial_speed_mps": 0.0,
+      "latency_s": null,
+      "stop_time_s": 0.013257265090942383,
+      "stopping_distance_m": 0.0
+    },
+    {
+      "t": 1795441497.3263838,
+      "initial_speed_mps": -0.08625921109666233,
+      "latency_s": 0.11757349967956543,
+      "stop_time_s": 0.012717485427856445,
+      "stopping_distance_m": 0.0
+    },
+    {
+      "t": 1795441498.3414755,
+      "initial_speed_mps": -1.14802774165583,
+      "latency_s": null,
+      "stop_time_s": 0.002481222152709961,
+      "stopping_distance_m": 0.0
+    },
+    {
+      "t": 1795441502.877922,
+      "initial_speed_mps": 0.0,
+      "latency_s": null,
+      "stop_time_s": 0.006253719329833984,
+      "stopping_distance_m": 0.0
+    },
+    {
+      "t": 1795441503.3307636,
+      "initial_speed_mps": 0.17620286085825748,
+      "latency_s": 0.19328856468200684,
+      "stop_time_s": 0.19328856468200684,
+      "stopping_distance_m": 0.04183534691352371
+    },
+    {
+      "t": 1795441525.0592258,
+      "initial_speed_mps": 0.6510619852622453,
+      "latency_s": 0.04474234580993652,
+      "stop_time_s": 0.384915828704834,
+      "stopping_distance_m": 0.11496701681057657,
+      "deceleration_mps2": 1.4003920651110253
+    },
+    {
+      "t": 1795441620.2421508,
+      "initial_speed_mps": 0.8292154312960555,
+      "latency_s": 0.06189441680908203,
+      "stop_time_s": 0.38182950019836426,
+      "stopping_distance_m": 0.13391379041005638,
+      "deceleration_mps2": 2.0959496842734686
+    },
+    {
+      "t": 1795441682.6881683,
+      "initial_speed_mps": 1.018422193324664,
+      "latency_s": 0.05091667175292969,
+      "stop_time_s": 0.47577404975891113,
+      "stopping_distance_m": 0.20574144345838755,
+      "deceleration_mps2": 2.0099047062040203
+    },
+    {
+      "t": 1795441793.0957065,
+      "initial_speed_mps": 1.1302557433896836,
+      "latency_s": 0.048220157623291016,
+      "stop_time_s": 0.4882042407989502,
+      "stopping_distance_m": 0.24196206996770708,
+      "deceleration_mps2": 2.2265060463759485
+    },
+    {
+      "t": 1795441798.7038047,
+      "initial_speed_mps": 1.112917208495882,
+      "latency_s": 0.04022383689880371,
+      "stop_time_s": 0.5202746391296387,
+      "stopping_distance_m": 0.25270202486844395,
+      "deceleration_mps2": 2.0555727905418193
+    },
+    {
+      "t": 1795441800.700092,
+      "initial_speed_mps": 1.0938448201127005,
+      "latency_s": 0.04391050338745117,
+      "stop_time_s": 0.5038483142852783,
+      "stopping_distance_m": 0.24407576050303417,
+      "deceleration_mps2": 2.0427367293935736
+    },
+    {
+      "t": 1795441802.1757114,
+      "initial_speed_mps": 1.0879930645860425,
+      "latency_s": 0.04826235771179199,
+      "stop_time_s": 0.588134765625,
+      "stopping_distance_m": 0.26951020868855796,
+      "deceleration_mps2": 1.809735831920463
+    },
+    {
+      "t": 1795441804.155919,
+      "initial_speed_mps": 1.1328565236237538,
+      "latency_s": 0.0480654239654541,
+      "stop_time_s": 0.5280945301055908,
+      "stopping_distance_m": 0.2525815953905512,
+      "deceleration_mps2": 2.091333957691375
+    },
+    {
+      "t": 1795441805.6879513,
+      "initial_speed_mps": 1.1322063285652362,
+      "latency_s": 0.05606245994567871,
+      "stop_time_s": 0.5360496044158936,
+      "stopping_distance_m": 0.25238484784373866,
+      "deceleration_mps2": 2.0355262688214384
+    },
+    {
+      "t": 1795441807.5322297,
+      "initial_speed_mps": 1.1324230602514087,
+      "latency_s": 0.05177664756774902,
+      "stop_time_s": 0.5117566585540771,
+      "stopping_distance_m": 0.24842713382401468,
+      "deceleration_mps2": 2.106158124379784
+    },
+    {
+      "t": 1795441812.8922424,
+      "initial_speed_mps": 1.0123537061118335,
+      "latency_s": 0.05169034004211426,
+      "stop_time_s": 0.47170281410217285,
+      "stopping_distance_m": 0.2107391693476372,
+      "deceleration_mps2": 1.985100082019126
+    }
+  ],
+  "suggested_profile": {
+    "measurements.command_latency_s": 4.368144273757935,
+    "measurements.max_acceleration_mps2": 3.8930362271942434,
+    "measurements.braking_deceleration_mps2": 1.4003920651110253,
+    "measurements.stop_test_speed_mps": 1.1328565236237538,
+    "measurements.stopping_distance_m": 0.26951020868855796,
+    "stop_events": 14
+  }
+}
