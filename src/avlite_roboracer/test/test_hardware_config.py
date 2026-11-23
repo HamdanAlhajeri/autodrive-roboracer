@@ -24,7 +24,7 @@ RELEASED = [0] * 8
 
 
 def test_actuator_is_silent_until_commanded_and_holds_stop_after_expiry():
-    logic = ActuatorLogic(commissioned_profile(), stop_hold_s=1.0)
+    logic = ActuatorLogic(commissioned_profile(**{"deadman.stop_on_press": False}), stop_hold_s=1.0)
     assert logic.tick(0.0) is None  # silent: driver teleop may use the topic
     logic.receive_command(STOP, 0.01, 0.0)
     assert logic.tick(0.01) is None
@@ -40,14 +40,14 @@ def test_actuator_is_silent_until_commanded_and_holds_stop_after_expiry():
 
 
 def test_actuator_rejects_delayed_commands():
-    logic = ActuatorLogic(commissioned_profile())
+    logic = hold_logic()
     logic.receive_command(MOVE, 0.4, 0.0)  # stamp older than the 0.25 s timeout
     logic.receive_command(MOVE, -0.5, 0.0)  # stamp from the future
     assert logic.tick(0.01) is None
 
 
 def test_explicit_stop_transitions_to_stopping():
-    logic = ActuatorLogic(commissioned_profile())
+    logic = hold_logic()
     logic.receive_command(MOVE, 0.0, 0.0)
     logic.tick(0.01)
     logic.receive_command(STOP, 0.0, 0.02)
@@ -55,7 +55,7 @@ def test_explicit_stop_transitions_to_stopping():
 
 
 def test_manual_override_wins_and_is_reported():
-    logic = ActuatorLogic(commissioned_profile())
+    logic = hold_logic()
     logic.receive_command(MOVE, 0.0, 0.0)
     logic.receive_manual(-0.2, 0.5, 0.0)
     assert logic.tick(0.01) == pytest.approx((-0.2, 0.5))
@@ -66,7 +66,7 @@ def test_manual_override_wins_and_is_reported():
 
 
 def test_competing_publisher_latches_a_fault():
-    logic = ActuatorLogic(commissioned_profile())
+    logic = hold_logic()
     logic.receive_command(MOVE, 0.0, 0.0)
     assert logic.tick(0.01, competing_publishers=1) == (0.0, 0.0)
     assert "another node" in logic.fault
@@ -75,7 +75,7 @@ def test_competing_publisher_latches_a_fault():
 
 
 def test_releasing_the_deadman_stops_and_blocks_restart():
-    logic = ActuatorLogic(commissioned_profile())
+    logic = hold_logic()
     logic.receive_joystick(HELD, 0.0)
     logic.receive_command(MOVE, 0.0, 0.0)
     assert logic.tick(0.01) == pytest.approx((0.1, 1.0))
@@ -88,7 +88,7 @@ def test_releasing_the_deadman_stops_and_blocks_restart():
 
 
 def test_silent_joystick_stops_even_with_fresh_commands():
-    logic = ActuatorLogic(commissioned_profile())
+    logic = hold_logic()
     logic.receive_joystick(HELD, 0.0)  # e.g. last message before the pad lost its link
     for step in range(1, 30):
         now = step * 0.01
@@ -98,7 +98,7 @@ def test_silent_joystick_stops_even_with_fresh_commands():
 
 
 def test_deadman_button_out_of_range_counts_as_released():
-    logic = ActuatorLogic(commissioned_profile())
+    logic = hold_logic()
     logic.receive_joystick([1, 1], 0.0)  # pad reports fewer buttons than the index
     logic.receive_command(MOVE, 0.0, 0.0)
     logic.state = "active"
@@ -184,7 +184,7 @@ def test_mapping_stopping_model_uses_measured_braking_and_latency():
 
 def test_actuator_status_remains_serializable_with_invalid_odometry():
     import json
-    logic = ActuatorLogic(commissioned_profile())
+    logic = hold_logic()
     logic.speed = math.inf
     assert json.loads(json.dumps(logic.status(0), allow_nan=False))["measured_speed_mps"] is None
 
@@ -281,7 +281,7 @@ def test_commissioning_with_only_chatter_suggests_no_braking_values():
 
 
 def test_deadman_fault_says_whether_the_button_was_released_or_the_joystick_went_silent():
-    logic = ActuatorLogic(commissioned_profile())
+    logic = hold_logic()
     logic.receive_joystick(HELD, 1.0)
     logic.receive_joystick(HELD, 1.1)
     status = logic.status(1.2)
@@ -297,6 +297,10 @@ def test_deadman_fault_says_whether_the_button_was_released_or_the_joystick_went
     assert "button NOT pressed" in released[0] and "1 with the button not pressed" in released[0]
     assert "last release 0.01 s ago" in released[0]
 
+
+def hold_logic():
+    """The hold-the-button mode (stop_on_press false); the shipped hardware.yaml uses the other."""
+    return ActuatorLogic(commissioned_profile(**{"deadman.stop_on_press": False}))
 
 def stop_on_press_logic():
     return ActuatorLogic(commissioned_profile(**{"deadman.stop_on_press": True}))
@@ -380,3 +384,7 @@ def test_stop_on_press_profile_value_must_be_true_or_false():
     assert commissioned_profile(**{"deadman.stop_on_press": True}).get("deadman.stop_on_press")
     with pytest.raises(ValueError, match="stop_on_press"):
         commissioned_profile(**{"deadman.stop_on_press": "yes"})
+
+
+def test_the_shipped_hardware_profile_stops_on_press_instead_of_requiring_a_hold():
+    assert commissioned_profile().get("deadman.stop_on_press") is True

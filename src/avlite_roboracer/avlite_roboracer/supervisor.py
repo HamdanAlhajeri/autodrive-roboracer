@@ -2,6 +2,7 @@
 
     IDLE -> MAPPING (map-start) -> FINALIZING (lap complete, car stopped)
     FINALIZING -> READY (map, plan and localization validated) | STOPPED (validation failed)
+    IDLE -> FINALIZING (map-load: a saved map is loaded and the car localizes on it, no lap)
     READY -> RACING (race-start) ; any active state -> STOPPED (stop, fault, lost laptop)
 
 Rules enforced here:
@@ -36,6 +37,7 @@ class Action(str, Enum):
     START_MAPPING = "start_mapping"
     STOP_AFTER_LAP = "stop_after_lap"
     FINALIZE = "finalize"
+    LOAD_MAP = "load_map"
     START_RACING = "start_racing"
     STOP_MOTION = "stop_motion"
     ABORT_FINALIZE = "abort_finalize"
@@ -60,6 +62,7 @@ class Supervisor:
         self.reasons = []
         self.plan = None
         self.lap_complete = False
+        self.load_request = None
         self.last_heartbeat_s = None
         self.actions = deque()
         self.history = deque(maxlen=50)
@@ -109,6 +112,27 @@ class Supervisor:
         self.last_heartbeat_s = now
         self._transition(State.MAPPING, now, [], [Action.START_MAPPING])
         return self._reply(True, "mapping started")
+
+    def map_load(self, session, now, request):
+        """Plan on a saved map instead of mapping: finalize from it with the car standing still.
+
+        request names the saved map and optionally the car's start pose; the runtime loads it,
+        localizes the car on it and validates the plan, then the state becomes READY.
+        """
+        if session != self.session:
+            return self._reply(False, "stale session: read status and retry", ["stale session"])
+        if self.state not in (State.IDLE, State.STOPPED):
+            return self._reply(False, f"map-load not allowed in {self.state.value}")
+        failures = self.mapping_checks(now)
+        if failures:
+            return self._reply(False, "map-load preconditions failed", failures)
+        self.number += 1
+        self.plan = None
+        self.lap_complete = False
+        self.load_request = dict(request)
+        self.last_heartbeat_s = None
+        self._transition(State.FINALIZING, now, [], [Action.LOAD_MAP])
+        return self._reply(True, "loading the saved map")
 
     def race_start(self, session, now):
         """Start racing on the current validated map; rejected (never queued) if not ready."""

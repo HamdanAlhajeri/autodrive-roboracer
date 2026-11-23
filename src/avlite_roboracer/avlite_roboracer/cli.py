@@ -2,6 +2,7 @@
 
     avlite-roboracer status [--json]
     avlite-roboracer map-start [--session S] [--heartbeat-stdin]
+    avlite-roboracer map-load --map-dir DIR [--start X Y YAW] [--session S]
     avlite-roboracer race-start [--session S] [--heartbeat-stdin]
     avlite-roboracer stop
 
@@ -10,6 +11,11 @@ running. It renews authorization every 0.2 s; the supervisor stops the car if re
 stop. With --heartbeat-stdin, renewals continue only while the laptop keeps writing lines
 to standard input, so a lost laptop or network ends authorization even if the SSH
 session lingers on the Jetson. Ctrl+C sends stop immediately.
+
+map-load plans on a map saved by an earlier mapping session (DIR holds map.yaml and
+racemap.json) instead of mapping again. The car must stand still at a place on that map; it
+finds where it is (or starts at --start, in the map frame) and moves nothing. Poll status
+until the state is READY, then run race-start.
 """
 
 import argparse
@@ -93,10 +99,13 @@ def authorize(client, session, laptop=None, period_s=0.2, laptop_timeout_s=0.5,
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=("status", "map-start", "race-start", "stop"))
+    parser.add_argument("command", choices=("status", "map-start", "map-load", "race-start", "stop"))
     parser.add_argument("--session", help="Session shown by status; defaults to the current one")
     parser.add_argument("--heartbeat-stdin", action="store_true",
                         help="Authorize only while lines keep arriving on stdin (SSH use)")
+    parser.add_argument("--map-dir", help="map-load: saved session directory (map.yaml, racemap.json)")
+    parser.add_argument("--start", nargs=3, type=float, metavar=("X", "Y", "YAW"),
+                        help="map-load: the car's pose in the map frame (default: search the map)")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--socket", help="Supervisor socket path")
     args = parser.parse_args(argv)
@@ -112,6 +121,20 @@ def main(argv=None):
         if args.command == "stop":
             reply = client.request("stop", reason="stop command")
             print(f"{reply['message']} ({reply['state']})")
+            return 0
+        if args.command == "map-load":
+            if not args.map_dir:
+                parser.error("map-load needs --map-dir")
+            session = args.session or client.request("status")["session"]
+            reply = client.request("map-load", session=session, map_dir=args.map_dir,
+                                   start=args.start)
+            if not reply["ok"]:
+                print(f"Rejected: {reply['message']}", file=sys.stderr)
+                for reason in reply.get("reasons", []):
+                    print(f"  - {reason}", file=sys.stderr)
+                return 1
+            print(f"{reply['message']}; session {reply['session']}. Run status until READY, "
+                  "then race-start.")
             return 0
         laptop = stdin_lines() if args.heartbeat_stdin else None
         session = args.session or client.request("status")["session"]

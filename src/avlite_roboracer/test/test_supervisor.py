@@ -202,3 +202,40 @@ def test_stop_supersedes_unexecuted_actions_and_revokes_authorization(sup, event
     if stage == "racing":
         assert sup.race_start(sup.session, 0.7)["ok"]
         assert not sup.heartbeat(old_session, 0.8)["ok"]
+
+
+def test_map_load_goes_to_finalizing_with_the_request_and_never_starts_motion(sup, gates):
+    request = {"map_dir": "/maps/a", "start": None}
+    reply = sup.map_load(sup.session, 0.0, request)
+    assert reply["ok"] and sup.state == State.FINALIZING
+    assert sup.take_actions() == [Action.LOAD_MAP] and sup.load_request == request
+    assert sup.heartbeat(sup.session, 1.0)["ok"] is False  # no motion authorization in FINALIZING
+    sup.finalize_succeeded({"plan_sha256": "abc"}, 5.0)
+    assert sup.state == State.READY and sup.take_actions() == []
+    assert sup.race_start(sup.session, 6.0)["ok"]
+
+
+def test_map_load_is_refused_when_busy_or_when_the_preconditions_fail(sup, gates):
+    assert not sup.map_load("stale", 0.0, {"map_dir": "x", "start": None})["ok"]
+    gates.mapping = ["LiDAR stale"]
+    reply = sup.map_load(sup.session, 0.0, {"map_dir": "x", "start": None})
+    assert not reply["ok"] and reply["reasons"] == ["LiDAR stale"] and sup.state == State.IDLE
+    gates.mapping = []
+    to_ready(sup)
+    assert not sup.map_load(sup.session, 50.0, {"map_dir": "x", "start": None})["ok"]
+
+
+def test_a_failed_map_load_leaves_the_car_stopped(sup):
+    sup.map_load(sup.session, 0.0, {"map_dir": "x", "start": None})
+    sup.take_actions()
+    sup.finalize_failed(["start pose is ambiguous"], 3.0)
+    assert sup.state == State.STOPPED and sup.plan is None
+
+
+def test_dispatch_checks_the_map_load_fields(sup):
+    assert not dispatch(sup, {"command": "map-load", "session": sup.session}, 0.0)["ok"]
+    bad = {"command": "map-load", "session": sup.session, "map_dir": "x", "start": [1, 2]}
+    assert "start must be" in dispatch(sup, bad, 0.0)["message"]
+    good = {"command": "map-load", "session": sup.session, "map_dir": "x", "start": [1, 2, 0.5]}
+    assert dispatch(sup, good, 0.0)["ok"] and sup.load_request == {"map_dir": "x",
+                                                                   "start": [1, 2, 0.5]}

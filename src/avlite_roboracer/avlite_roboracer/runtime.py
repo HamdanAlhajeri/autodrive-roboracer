@@ -276,7 +276,7 @@ class Runtime:
         with self.lock:
             reply = dispatch(self.supervisor, request, time.monotonic(), self.status_extra)
         if (isinstance(request, dict) and reply.get("ok")
-                and request.get("command") in ("map-start", "race-start", "stop")):
+                and request.get("command") in ("map-start", "map-load", "race-start", "stop")):
             self.node.get_logger().info(f"{request['command']}: {reply.get('message')}")
         return reply
 
@@ -554,6 +554,14 @@ class Runtime:
                     target=self.finalize, args=(self.finalize_cancel, self.supervisor.session),
                     daemon=True)
                 self.finalize_thread.start()
+            elif action == Action.LOAD_MAP:
+                self.arbiter.release()
+                self.finalize_cancel = threading.Event()
+                self.finalize_thread = threading.Thread(
+                    target=self.finalize, args=(self.finalize_cancel, self.supervisor.session,
+                                                self.supervisor.load_request),
+                    daemon=True)
+                self.finalize_thread.start()
             elif action == Action.START_RACING:
                 self.racer.reset()
                 self.speed = SpeedDemand(self.prepared.settings.speed_limit)
@@ -676,10 +684,14 @@ class Runtime:
         return None
 
     # ------------------------------------------------------------ finalization
-    def finalize(self, cancel, session):
-        """Optimize, save, build and validate the map and plan, then switch to localization."""
+    def finalize(self, cancel, session, load_request=None):
+        """Optimize, save, build and validate the map and plan, then switch to localization.
+
+        With load_request, nothing is mapped: a saved map is loaded and the car localizes on it.
+        """
         try:
-            plan = self._finalize_steps(cancel)
+            plan = (self._load_steps(cancel, load_request) if load_request
+                    else self._finalize_steps(cancel))
         except FinalizeCancelled:
             return
         except Exception as exc:  # any worker failure must leave FINALIZING
@@ -729,8 +741,6 @@ class Runtime:
 
     def _finalize_steps(self, cancel):
         from slam_toolbox.srv import SaveMap, SerializePoseGraph
-        from avlite_autodrive.plugin.planned_controller import AutoDRIVEPlannedController
-        from avlite_autodrive.race_planning import prepare_plan
 
         self._step(cancel, "waiting for loop-closure optimization to settle")
         history = []
@@ -788,6 +798,61 @@ class Runtime:
             "map_yaml": str(self.session_dir / "map.yaml"),
         }, indent=2) + "\n")
 
+        return self._activate(cancel, grid, map_path, racemap, pose=None, base=base)
+
+    def _load_steps(self, cancel, request):
+        """Load a saved map and put the standing car on it; the plan comes from that map."""
+        from .icp_replay import find_start
+        if self.localization_source != "icp":
+            raise RuntimeError("map-load needs the ICP localizer (localization.source: icp)")
+        map_dir = Path(request["map_dir"]).expanduser()
+        self._step(cancel, f"loading the saved map from {map_dir}")
+        with self.lock:
+            self.stop_slam()
+            self.prepared = self.racer = self.grid = self.icp = None
+            self.map_msg = self.slam_pose = None
+            self.speed.reset()
+            if self.monitor is not None:
+                self.monitor.reset()
+            self.plan_pub.publish(self.String(data="{}"))
+            self.session_dir = self.data_dir / "sessions" / self.supervisor.session
+            self.session_dir.mkdir(parents=True, exist_ok=True)
+            if self.icp_trace is not None:
+                self.icp_trace.close()
+            self.icp_trace = None
+            scan = self.scan
+        for name in ("map.yaml", "racemap.json"):
+            if not (map_dir / name).is_file():
+                raise RuntimeError(f"{map_dir / name} not found; map-load needs a map saved by "
+                                   "a finished mapping session (or built from one offline)")
+        grid = OccupancyGrid.load(map_dir / "map.yaml", self.frames["map"])
+        racemap = json.loads((map_dir / "racemap.json").read_text())
+        if request.get("start") is not None:
+            pose = tuple(float(v) for v in request["start"])
+            found = "given"
+        else:
+            if scan is None:
+                raise RuntimeError("no LiDAR scan to find the start pose from")
+            self._step(cancel, "finding where the car is on the map from one scan")
+            pose, alignment, runner_up = find_start(grid, scan, self.profile.laser_mount,
+                                                    self.icp_settings)
+            found = (f"searched: alignment {alignment:.2f}, best elsewhere on the map "
+                     f"{runner_up:.2f}")
+            if runner_up > 0.9 * alignment:
+                raise RuntimeError(f"the start pose is ambiguous ({found}); the place looks like "
+                                   "another place on the map. Give --start X Y YAW")
+        self.node.get_logger().info(
+            f"map-load start pose {pose[0]:.2f} {pose[1]:.2f} {pose[2]:.2f} ({found})")
+        (self.session_dir / "session.json").write_text(json.dumps({
+            "session": self.supervisor.session, "profile": self.profile.summary(),
+            "loaded_map": str(map_dir), "start_pose": list(pose), "start_pose_source": found,
+        }, indent=2) + "\n")
+        return self._activate(cancel, grid, map_dir / "racemap.json", racemap, pose=pose)
+
+    def _activate(self, cancel, grid, map_path, racemap, pose, base=None):
+        """Generate and validate the plan, start localization and wait until it is stable."""
+        from avlite_autodrive.plugin.planned_controller import AutoDRIVEPlannedController
+        from avlite_autodrive.race_planning import prepare_plan
         self._step(cancel, "generating and validating the racing line")
         config = hardware_race_config(self.race_config, self.profile, map_path)
         apply_control_settings(config["c30_control"])
@@ -795,7 +860,8 @@ class Runtime:
         prepared.save(self.session_dir / "plan.json")
         racer = AutoDRIVEPlannedController(prepared)
 
-        pose = self.pose("map")
+        if pose is None:
+            pose = self.pose("map")
         if pose is None:
             raise RuntimeError("no map pose available to transfer to localization")
         if self.localization_source == "icp":

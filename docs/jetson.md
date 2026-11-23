@@ -233,6 +233,23 @@ From the laptop (key-based SSH; `-Session` is the value shown by `status`):
 .\avlite.ps1 car -Action stop -JetsonHost racer@jetson.local
 ```
 
+Plan on a map saved by an earlier mapping session instead of mapping again (the car stands still
+on the map; the DIR holds `map.yaml` and `racemap.json`). Run it on the Jetson, then poll `status`
+until the state is `READY` and run `race-start` as usual:
+
+```bash
+avlite-roboracer map-load --map-dir ~/.local/share/avlite-roboracer/sessions/<session>
+avlite-roboracer map-load --map-dir <DIR> --start X Y YAW   # when the car's place is known or ambiguous
+```
+
+Without `--start` the car finds its own place from one LiDAR scan and refuses if two places on the
+map fit about equally well. Nothing moves during `map-load`.
+
+**Dead-man.** `deadman.stop_on_press: true` (the shipped setting): the operator does not hold the
+button. The car runs while the joystick keeps publishing; pressing the button (B) stops it at once
+and it stays stopped; a joystick that goes silent also stops it. Set it to `false` to go back to
+holding the button.
+
 | State | Meaning |
 | --- | --- |
 | `IDLE` | Started; nothing moves. Restarts always begin here. |

@@ -12,7 +12,7 @@ import socketserver
 import threading
 import time
 
-COMMANDS = ("status", "map-start", "race-start", "stop", "heartbeat")
+COMMANDS = ("status", "map-start", "map-load", "race-start", "stop", "heartbeat")
 
 
 def default_socket_path():
@@ -34,6 +34,14 @@ def dispatch(supervisor, request, now, status_extra=None):
         return {"ok": True, **supervisor.status(now, status_extra() if status_extra else None)}
     if command == "map-start":
         return supervisor.map_start(session, now)
+    if command == "map-load":
+        start = request.get("start")
+        if not isinstance(request.get("map_dir"), str) or not request["map_dir"]:
+            return {"ok": False, "message": "map-load needs map_dir"}
+        if start is not None and not (isinstance(start, list) and len(start) == 3
+                                      and all(isinstance(v, (int, float)) for v in start)):
+            return {"ok": False, "message": "start must be [x, y, yaw]"}
+        return supervisor.map_load(session, now, {"map_dir": request["map_dir"], "start": start})
     if command == "race-start":
         return supervisor.race_start(session, now)
     if command == "heartbeat":
