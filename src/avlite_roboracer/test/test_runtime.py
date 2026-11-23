@@ -8,6 +8,7 @@ import pytest
 
 from avlite_roboracer.command import CommandArbiter, CommandSource, SpeedDemand
 from avlite_roboracer import runtime as runtime_module
+from avlite_roboracer.profiling import StackSampler, TickStats
 from avlite_roboracer.runtime import Runtime, sensor_stamp_is_fresh
 from avlite_roboracer.supervisor import State, Supervisor
 from roboracer_fixtures import commissioned_profile
@@ -34,6 +35,8 @@ def runtime_stub():
     runtime.node = Mock()
     runtime.last_graph_check = time.monotonic()
     runtime.pending_scans = deque()
+    runtime.tick_stats = TickStats()
+    runtime.sampler = StackSampler(threading.get_ident())
     runtime.supervisor = Supervisor("boot", 1.0, lambda now: [], lambda now: [])
     runtime.supervisor.state = State.RACING
     runtime.supervisor.last_heartbeat_s = time.monotonic()

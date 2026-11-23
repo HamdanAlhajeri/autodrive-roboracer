@@ -41,6 +41,7 @@ from .protocol import CommandServer, default_socket_path, dispatch
 from .racing import hardware_race_config, mapping_control_config, mapping_racing_config
 from .readiness import actuator_failures, mapping_failures, race_failures
 from .slam import SlamProcess, effective_parameters, require_save_success
+from .profiling import StackSampler, TickStats
 from .supervisor import Action, State, Supervisor
 
 CONTROL_DT = 0.05
@@ -112,6 +113,9 @@ class Runtime:
         self.scan_time = self.odom_time = -math.inf
         self.last_scan_stamp = self.last_odom_stamp = None
         self.reset_scan_stats()
+        self.tick_stats = TickStats()
+        self.sampler = StackSampler(threading.get_ident())
+        self.sampler.start()
         self.pending_scans = deque(maxlen=100)
         self.odom_speed = 0.0
         self.slam_pose = None
@@ -357,6 +361,7 @@ class Runtime:
     # ----------------------------------------------------------------- control
     def tick(self):
         now = time.monotonic()
+        marks = {}
         with self.lock:
             if now - self.last_graph_check > 1.0:
                 self.last_graph_check = now
@@ -370,10 +375,13 @@ class Runtime:
                     self.pending_scans.popleft()
                 else:
                     break  # asynchronous SLAM may provide this scan's TF on the next tick
+            marks["scans"] = time.monotonic()
             self.supervisor.tick(now)
+            marks["supervisor"] = time.monotonic()
             self.check_faults(now)
+            marks["faults"] = time.monotonic()
             self.run_actions(now)
-            actions_done = time.monotonic()
+            actions_done = marks["actions"] = time.monotonic()
             try:
                 command = self.control(now)
                 elapsed = time.monotonic() - now
@@ -387,17 +395,33 @@ class Runtime:
                 self.supervisor.fault(f"controller error: {exc}", now)
                 self.run_actions(now)
                 command = None
+            marks["control"] = time.monotonic()
             self.run_actions(now)  # control may have stopped or finalized the session
             if command is not None and self.supervisor.state in (State.MAPPING, State.RACING):
                 self.arbiter.submit(*command, now)
             out = self.arbiter.output(now)
             self._persist()
+            if self.supervisor.state == State.MAPPING:
+                self.tick_stats.record(now, dict(marks, publish=time.monotonic()))
+            elif self.sampler.active:
+                self.dump_timing_report()
         msg = self.Drive()
         msg.header.stamp = self.node.get_clock().now().to_msg()
         msg.header.frame_id = out.source.value
         msg.drive.steering_angle = out.steering_rad
         msg.drive.speed = out.speed_mps
         self.command_pub.publish(msg)
+
+    def dump_timing_report(self):
+        """Mapping has ended: save where the supervisor thread spent its time, then switch off."""
+        self.sampler.active = False
+        report = f"tick timing: {self.tick_stats.text()}\n{self.sampler.report()}\n"
+        self.node.get_logger().info(report)
+        if self.session_dir is not None:
+            try:
+                (self.session_dir / "timing-report.txt").write_text(report, encoding="utf-8")
+            except OSError:
+                pass
 
     def log_icp(self, stamp_s, map_pose):
         """Append one map-frame pose to icp_trace.csv (racing) or slam_trace.csv (mapping).
@@ -478,7 +502,8 @@ class Runtime:
             if not (0 <= scan_age <= timeout and 0 <= odom_age <= timeout):
                 self.supervisor.fault(f"stale LiDAR or odometry (scan {scan_age:.3f} s, "
                                       f"odometry {odom_age:.3f} s, limit {timeout} s; "
-                                      f"{self.scan_stats_text()})", now)
+                                      f"{self.scan_stats_text()}; ticks: "
+                                      f"{self.tick_stats.text()})", now)
             elif actuator:
                 self.supervisor.fault("; ".join(actuator), now)
             elif state in (State.RACING, State.READY):
@@ -543,6 +568,9 @@ class Runtime:
         self.map_msg = self.slam_pose = None
         self.pending_scans.clear()
         self.reset_scan_stats()
+        self.tick_stats.reset()
+        self.sampler.reset()
+        self.sampler.active = True
         self.tf.clear()
         self._pose_seen.clear()
         if self.monitor is not None:
@@ -815,6 +843,7 @@ class Runtime:
             self.finalize_cancel.set()
             self._persist()
         self.server.close()
+        self.sampler.stop()
         self.stop_slam()
 
 
