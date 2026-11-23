@@ -31,6 +31,29 @@ this software. Simulator speeds, gains and limits do not apply to it: start at 1
 | 6 | **Speed 0.** Release the stick while the wheels spin | The wheels stop (brake), not coast | Note it; stopping distances will be longer |
 | 7 | Hold the dead-man button, then let go; kill the bringup; unplug the network | Each one stops the car | Stop here: do not continue to Part 2 |
 
+## Part 1b: steering angle and the first offline localization check (no driving)
+
+Added 23 Nov after the first hand-driven map: SLAM Toolbox's motion was 8 % longer than the wheel odometry
+and turned 30 % more than the odometry yaw. The odometry takes yaw from the commanded servo through
+`steering_angle_to_servo_gain` (stock -1.2135), so a wrong gain would also mis-steer the car.
+
+1. **Steering calibration** (car stationary, wheels on the floor): run `servo-calibration/servo_center.py`
+   (VESC servo only, no drive motor), step the servo to about 7 positions inside `servo_min` and `servo_max`
+   (for example 0.15, 0.25, 0.35, 0.42, 0.50, 0.60, 0.70, 0.85), and read the left and right front wheel
+   angle at each with a protractor or a photo from above. Fit `servo = gain x angle + offset` and compare it
+   with the live `vesc.yaml`.
+2. **Full mapping lap by hand** with `bash tools/jetson-run.sh record`: drive one complete lap slowly, start
+   moving at once and go slightly past the start so the route closes within 1 m.
+3. **Replay the map**: `bash tools/jetson-run.sh map`, then `python3 -m avlite_roboracer.recorder export
+   <replay-dir> --profile config/roboracer/hardware.yaml`.
+4. **Offline race map** (rejections name the place): `python3 -m avlite_roboracer.map_builder <replay-dir>
+   --profile config/avlite.yaml --name track-real --output-dir /tmp/map-test`.
+5. **ICP against the saved map**, motors off: `python3 -m avlite_roboracer.icp_replay
+   log/jetson/<run>/records.jsonl --map <replay-dir>/map.yaml --profile config/roboracer/hardware.yaml
+   --auto-start --output /tmp/icp-replay`. It prints how well the scans fit (alignment), recoveries, and the
+   odometry-to-ICP ratios for distance and turning. A close-to-1 start-search runner-up means the start was
+   ambiguous: pass `--start X Y YAW` instead.
+
 ## Part 2: Stop tests (wheels on the floor, clear space)
 
 These give the last 5 profile values: command latency, braking deceleration, maximum acceleration,
