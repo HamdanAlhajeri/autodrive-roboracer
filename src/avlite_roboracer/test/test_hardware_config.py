@@ -149,7 +149,7 @@ def test_race_config_takes_geometry_from_profile_and_respects_limits(tmp_path):
     assert planning["frame_id"] == "map"
     assert planning["wheelbase_m"] == control["c32_ego_distance_front_axle"] == 0.33
     assert planning["vehicle_radius_m"] == pytest.approx(math.hypot(0.15, 0.12))
-    assert planning["max_velocity_mps"] == control["c32_ego_max_velocity"] == 1.5
+    assert planning["max_velocity_mps"] == control["c32_ego_max_velocity"] == 1.0
 
 
 @pytest.mark.parametrize("section, key, value, message", [
