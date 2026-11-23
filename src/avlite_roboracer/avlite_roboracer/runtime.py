@@ -100,6 +100,7 @@ class Runtime:
         self.scan = None
         self.scan_time = self.odom_time = -math.inf
         self.last_scan_stamp = self.last_odom_stamp = None
+        self.reset_scan_stats()
         self.pending_scans = deque(maxlen=100)
         self.odom_speed = 0.0
         self.slam_pose = None
@@ -175,12 +176,29 @@ class Runtime:
                                f"{self.supervisor.session}")
 
     # -------------------------------------------------------------- callbacks
+    def reset_scan_stats(self):
+        """Counters for the stale-LiDAR diagnosis: scans seen, rejected, and header-stamp lag."""
+        self.scan_stats = {"seen": 0, "rejected": 0, "lag_last_s": None, "lag_max_s": 0.0}
+
+    def scan_stats_text(self):
+        stats = getattr(self, "scan_stats", None)
+        if not stats or not stats["seen"]:
+            return "no scans seen since the session started"
+        return (f"scans seen {stats['seen']}, rejected as stale or out of order "
+                f"{stats['rejected']}, stamp lag last {stats['lag_last_s']:.3f} s "
+                f"max {stats['lag_max_s']:.3f} s")
+
     def on_scan(self, msg):
         with self.lock:
             stamp = msg.header.stamp.sec * 10**9 + msg.header.stamp.nanosec
-            if not sensor_stamp_is_fresh(stamp, self.last_scan_stamp,
-                                         self.node.get_clock().now().nanoseconds,
+            now_ns = self.node.get_clock().now().nanoseconds
+            lag = (now_ns - stamp) * 1e-9
+            self.scan_stats["seen"] += 1
+            self.scan_stats["lag_last_s"] = lag
+            self.scan_stats["lag_max_s"] = max(self.scan_stats["lag_max_s"], lag)
+            if not sensor_stamp_is_fresh(stamp, self.last_scan_stamp, now_ns,
                                          self.profile.get("timing.sensor_timeout_s")):
+                self.scan_stats["rejected"] += 1
                 return
             self.last_scan_stamp = stamp
             self.scan = msg
@@ -448,7 +466,8 @@ class Runtime:
         elif state in (State.MAPPING, State.RACING, State.READY, State.FINALIZING):
             if not (0 <= scan_age <= timeout and 0 <= odom_age <= timeout):
                 self.supervisor.fault(f"stale LiDAR or odometry (scan {scan_age:.3f} s, "
-                                      f"odometry {odom_age:.3f} s, limit {timeout} s)", now)
+                                      f"odometry {odom_age:.3f} s, limit {timeout} s; "
+                                      f"{self.scan_stats_text()})", now)
             elif actuator:
                 self.supervisor.fault("; ".join(actuator), now)
             elif state in (State.RACING, State.READY):
@@ -512,6 +531,7 @@ class Runtime:
         self.graph_time = -math.inf
         self.map_msg = self.slam_pose = None
         self.pending_scans.clear()
+        self.reset_scan_stats()
         self.tf.clear()
         self._pose_seen.clear()
         if self.monitor is not None:

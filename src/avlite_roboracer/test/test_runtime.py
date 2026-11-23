@@ -103,3 +103,14 @@ def test_warm_up_imports_what_is_installed_and_names_what_is_not(monkeypatch):
     assert len(messages) == 1 and "warm-up imports took" in messages[0]
     assert "no_such_module_for_warm_up" in messages[0]
     assert runtime_module.warm_up_imports() == ["no_such_module_for_warm_up"]
+
+
+def test_scan_stats_text_reports_what_the_stale_lidar_stop_needs():
+    runtime = Runtime.__new__(Runtime)
+    assert runtime.scan_stats_text() == "no scans seen since the session started"
+    runtime.reset_scan_stats()
+    assert runtime.scan_stats_text() == "no scans seen since the session started"
+    runtime.scan_stats.update(seen=10, rejected=3, lag_last_s=0.21, lag_max_s=0.34)
+    text = runtime.scan_stats_text()
+    assert "seen 10" in text and "rejected as stale or out of order 3" in text
+    assert "last 0.210 s" in text and "max 0.340 s" in text
