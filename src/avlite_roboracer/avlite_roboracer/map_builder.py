@@ -143,8 +143,10 @@ def _check_ambiguity(widths, route, side, settings):
     jumps = np.abs(np.diff(np.r_[filtered, filtered[0]]))
     worst = int(np.argmax(jumps))
     if jumps[worst] > settings.max_width_jump_m:
-        raise MapRejected(f"Ambiguous {side} boundary at s={route.s[worst]:.1f} m "
-                          f"(wall distance changes by {jumps[worst]:.2f} m)")
+        x, y = route.points[worst]
+        raise MapRejected(f"Ambiguous {side} boundary at s={route.s[worst]:.1f} m, map x="
+                          f"{x:.2f} y={y:.2f} (wall distance changes by {jumps[worst]:.2f} m, "
+                          f"limit {settings.max_width_jump_m} m)")
     return filtered
 
 
