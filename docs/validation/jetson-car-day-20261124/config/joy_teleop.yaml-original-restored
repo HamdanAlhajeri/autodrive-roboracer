@@ -1,0 +1,55 @@
+# F710 in X (XInput) mode, Linux xpad layout, ROS 2 Jazzy joy_node.
+# D mode does not work on the Jetson kernel (hid-logitech probe fails).
+# Buttons: 0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, 6 Back, 7 Start, 8 Logitech, 9 L-stick, 10 R-stick
+# Axes:    0 L-stick X (left +), 1 L-stick Y (up +), 2 LT (rest 1.0), 3 R-stick X (left +),
+#          4 R-stick Y (up +), 5 RT (rest 1.0), 6/7 D-pad
+# Indices follow the standard layout and the observed rest values (axes 2 and 5 = 1.0).
+# Button presses were NOT verified on 2026-11-10 (the pad sent no input): verify with
+# `ros2 topic echo /joy` before driving.
+joy:
+  ros__parameters:
+    # device_name: /dev/input/joypad-f710
+    device_id: 0
+    deadzone: 0.01
+    autorepeat_rate: 20.0
+    coalesce_interval: 0.01
+
+joy_teleop:
+  ros__parameters:
+    default:
+      type: topic
+      interface_type: ackermann_msgs/msg/AckermannDriveStamped
+      topic_name: teleop
+      axis_mappings:
+        drive-speed:
+          axis: 1
+          scale: 0.0
+          offset: 0.0
+        drive-steering_angle:
+          axis: 3   # R-stick X (was 2 = LT trigger in X mode)
+          scale: 0.0
+          offset: 0.0
+
+    human_control:
+      type: topic
+      interface_type: ackermann_msgs/msg/AckermannDriveStamped
+      topic_name: teleop
+      deadman_buttons: [4]   # LB (was 6 = Back in X mode)
+      axis_mappings:
+        drive-speed:
+          axis: 1
+          scale: 1.0   # m/s at full stick (stock 5.0; lowered for first runs)
+          offset: 0.0
+        drive-steering_angle:
+          axis: 3   # R-stick X (was 2 = LT trigger in X mode)
+          scale: 0.34
+          offset: 0.0
+
+    autonomous_control:
+      type: topic
+      interface_type: std_msgs/msg/Int8
+      topic_name: /dev/null
+      deadman_buttons: [5]   # RB (was 8 = Logitech button in X mode)
+      message_value:
+        data:
+          value: 0

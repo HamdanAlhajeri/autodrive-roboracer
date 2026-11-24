@@ -1,0 +1,2 @@
+Nov 24 18:59:54 localhost.localdomain kernel: usb 1-2.1: USB disconnect, device number 7
+Nov 24 18:59:55 localhost.localdomain kernel: usb 1-2.2: USB disconnect, device number 6

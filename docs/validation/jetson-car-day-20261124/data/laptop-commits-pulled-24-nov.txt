@@ -1,0 +1,4 @@
+18d076f config: car acceleration limit 0.4 m/s2 so the speed command ramps up more gently
+0b1bfd8 map_builder: the ambiguous-boundary rejection names the map x y of the jump and the limit
+6b4b636 runtime: retry slam_toolbox save_map up to 3 times when it fails with result 255 during finalization
+34df07c runtime: map-load plans on a saved map (load, find the start pose on it, validate the plan, localize w
