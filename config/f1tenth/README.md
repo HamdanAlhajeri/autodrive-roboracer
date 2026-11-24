@@ -34,3 +34,12 @@ The install and build copies in the workspace are symlinks to that source file.
   gear settings in the VESC change, recompute the gain.
 - With the offset at 0.420 and the driver limits 0.15 and 0.85, the reachable steering is about +0.222 rad left and
   -0.354 rad right, so `steering.max_angle_rad` is 0.22.
+
+## mux.yaml (joystick priority)
+
+`mux.yaml` is the copy of `~/f1tenth_ws/src/f1tenth_system/f1tenth_stack/config/mux.yaml`. Stock gives the joystick
+topic priority 100, and `joy_teleop.yaml` publishes zero-speed messages on it at 9 to 20 Hz whenever no button is
+held, so every autonomous `/drive` command was dropped (measured 24 Nov 2026). Priority 5 (below `/drive` at 10) lets
+autonomy through while `/drive` is fresh; the zeros still keep `/odom` alive at idle and stop the car 0.2 s after
+`/drive` goes quiet. Do not remove the `default` entry in `joy_teleop.yaml`: it also stopped `/odom`. Install the same
+way as `vesc.yaml`, with a backup, then restart the bringup with the car off the ground.
