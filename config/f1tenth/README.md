@@ -25,6 +25,29 @@ The install and build copies in the workspace are symlinks to that source file.
 - `vesc_to_odom_node.wheelbase: 0.314` (stock .25). The measured wheelbase is 0.314 m, and this value sets the yaw
   rate in the odometry, so it matters for SLAM and ICP.
 
+## Throttle ramp (acceleration limit)
+
+The car jittered when the speed jumped (full joystick push). F1TENTH's `throttle_interpolator` node sits after the
+mux, so it ramps the speed for the joystick and for autonomy alike. In `vesc.yaml`:
+
+- `max_acceleration` (m/s^2): how fast the speed may rise. Now 0.5 (stock 2.5). Raise it in small steps if the car is
+  too sluggish; lower it if it still jitters.
+- `max_deceleration` (m/s^2): how fast it may slow down or stop. Keep it at 2.5 so the B stop stays quick (a stop from
+  0.8 m/s took about 0.37 s measured at 2.5; at 0.5 it would take about 1.6 s).
+
+The stock node has one limit for both directions and ignores `max_deceleration`, so install the patched
+`throttle_interpolator.py` (stock plus the second limit; with no `max_deceleration` it behaves as stock):
+
+```bash
+F=~/f1tenth_ws/src/f1tenth_system/f1tenth_stack/f1tenth_stack/throttle_interpolator.py
+cp $F ~/throttle_interpolator.py.bak-$(date +%Y%m%d-%H%M%S)
+cp config/f1tenth/throttle_interpolator.py $F
+```
+
+Install `vesc.yaml` the same way, restart the bringup with the car off the ground, then repeat a B-press stop test and
+a wheels-off full-stick test before driving. Autonomy also has its own ramp, `c32_ego_max_acceleration: 0.4` in
+`config/roboracer/race.yaml`; the slower of the two wins.
+
 ## Known open items
 
 - `speed_to_erpm_gain: -4614.0` (stock 4614.0). The motor ran opposite to the command after the VESC recalibration,

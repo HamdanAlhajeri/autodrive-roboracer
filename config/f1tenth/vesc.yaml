@@ -52,8 +52,15 @@ throttle_interpolator:
     servo_input_topic: commands/servo/unsmoothed_position
     servo_output_topic: commands/servo/position
 
-    # servo smoother - limits acceleration and smooths anything above limit
-    max_acceleration: 2.5 # meters/second^2
+    # Throttle ramp: the speed command rises by at most this much per second, from rest up to what
+    # the joystick or the autonomy asks for. It sits after the mux, so it limits both. The car jittered
+    # when the speed jumped (full stick); a lower value ramps up gently. Change it here and restart.
+    max_acceleration: 0.5 # meters/second^2 (stock 2.5)
+    # Slowing down and stopping (the B stop, a zero command) may be faster than speeding up. This needs
+    # the patched throttle_interpolator.py in this folder: the stock node has no such setting and uses
+    # max_acceleration for stopping too, which would make the B stop slow. Do not install a low
+    # max_acceleration without the patched node.
+    max_deceleration: 2.5 # meters/second^2
     throttle_smoother_rate: 75.0 # messages/sec
     # servo smoother - limits rotation speed and smooths anything above limit
     max_servo_speed: 3.2 # radians/second
