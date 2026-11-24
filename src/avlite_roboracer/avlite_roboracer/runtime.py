@@ -42,7 +42,6 @@ from .racing import hardware_race_config, mapping_control_config, mapping_racing
 from .readiness import actuator_failures, mapping_failures, race_failures
 from .slam import SlamProcess, effective_parameters, require_save_success
 from .profiling import StackSampler, TickStats
-from .stall import StallMonitor
 from .supervisor import Action, State, Supervisor
 
 CONTROL_DT = 0.05
@@ -115,8 +114,6 @@ class Runtime:
         self.last_scan_stamp = self.last_odom_stamp = None
         self.reset_scan_stats()
         self.tick_stats = TickStats()
-        self.stall = StallMonitor(window_s=self.profile.get("timing.stall_timeout_s", 6.0))
-        self.last_command_speed = 0.0
         self.sampler = StackSampler(threading.get_ident())
         self.sampler.start()
         self.pending_scans = deque(maxlen=100)
@@ -414,7 +411,6 @@ class Runtime:
             self.run_actions(now)  # control may have stopped or finalized the session
             if command is not None and self.supervisor.state in (State.MAPPING, State.RACING):
                 self.arbiter.submit(*command, now)
-                self.last_command_speed = command[2]
             out = self.arbiter.output(now)
             self._persist()
             if self.supervisor.state == State.MAPPING:
@@ -505,7 +501,6 @@ class Runtime:
     def check_faults(self, now):
         state = self.supervisor.state
         if state in (State.IDLE, State.STOPPED):
-            self.stall.reset()
             return
         scan_age, odom_age = self.ages(now)
         timeout = self.profile.get("timing.sensor_timeout_s")
@@ -523,9 +518,6 @@ class Runtime:
                                       f"{self.tick_stats.text()})", now)
             elif actuator:
                 self.supervisor.fault("; ".join(actuator), now)
-            elif state in (State.MAPPING, State.RACING) and (
-                    stalled := self.stall.update(now, self.last_command_speed, self.odom_speed)):
-                self.supervisor.fault(stalled, now)
             elif state in (State.RACING, State.READY):
                 failures = [f for f in self.monitor.failures(now) if "stable for only" not in f]
                 if failures:

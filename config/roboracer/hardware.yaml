@@ -79,7 +79,6 @@ timing:
   authorization_timeout_s: 1.0 # Supervisor stops if laptop heartbeats stop.
   sensor_timeout_s: 0.25
   pose_timeout_s: 0.3
-  stall_timeout_s: 6.0        # Stop when the car is commanded >= 0.3 m/s but moves < 25 % of it this long; 0 = off.
 
 # READY thresholds. Establish from vehicle size, track clearance and measured behaviour.
 localization:
