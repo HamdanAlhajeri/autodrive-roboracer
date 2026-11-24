@@ -728,6 +728,19 @@ class Runtime:
             time.sleep(period_s)
         raise TimeoutError(message)
 
+    def _call_retry(self, cancel, srv_type, name, request, tries=3, delay_s=2.0):
+        """_call again after a pause: save_map fails now and then with result 255 (map_saver
+        could not get the map subscription) and works on the next try."""
+        for attempt in range(1, tries + 1):
+            try:
+                return self._call(cancel, srv_type, name, request)
+            except RuntimeError as exc:
+                if attempt == tries:
+                    raise
+                self.node.get_logger().warning(f"{exc}; retrying ({attempt}/{tries - 1})")
+                if cancel.wait(delay_s):
+                    raise FinalizeCancelled
+
     def _call(self, cancel, srv_type, name, request, timeout_s=30.0):
         client = self.node.create_client(srv_type, name)
         try:
@@ -775,7 +788,7 @@ class Runtime:
                    SerializePoseGraph.Request(filename=str(base)))
         request = SaveMap.Request()
         request.name.data = str(self.session_dir / "map")
-        self._call(cancel, SaveMap, "/slam_toolbox/save_map", request)
+        self._call_retry(cancel, SaveMap, "/slam_toolbox/save_map", request)
         with self.lock:
             msg, nodes = self.map_msg, list(self.graph_nodes)
             start = self.lap.start_pose
