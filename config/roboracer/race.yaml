@@ -22,7 +22,7 @@ planning:
 c30_control:
   c32_ego_distance_front_axle: 0.33   # Replaced by vehicle.wheelbase_m.
   c32_ego_max_velocity: 1.0
-  c32_ego_max_acceleration: 0.8
+  c32_ego_max_acceleration: 0.4
   c32_ego_min_acceleration: -1.0
   c32_ego_max_steering: 0.22
   c32_ego_min_steering: -0.22
