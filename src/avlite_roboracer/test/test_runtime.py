@@ -9,6 +9,7 @@ import pytest
 from avlite_roboracer.command import CommandArbiter, CommandSource, SpeedDemand
 from avlite_roboracer import runtime as runtime_module
 from avlite_roboracer.profiling import StackSampler, TickStats
+from avlite_roboracer.stall import StallMonitor
 from avlite_roboracer.runtime import Runtime, sensor_stamp_is_fresh
 from avlite_roboracer.supervisor import State, Supervisor
 from roboracer_fixtures import commissioned_profile
@@ -137,6 +138,9 @@ def mapping_stub(session, mapping_session):
     runtime.pose = lambda *args, **kwargs: None  # no SLAM pose yet
     runtime.lap_started = True   # left over from the previous session
     runtime.mapping_session = mapping_session
+    runtime.stall = StallMonitor(window_s=6.0)
+    runtime.last_command_speed = 0.0
+    runtime.odom_speed = 0.0
     return runtime
 
 
@@ -154,3 +158,28 @@ def test_the_mapping_pose_check_still_stops_a_session_whose_lap_has_started():
     assert runtime.lap_active
     runtime.check_faults(time.monotonic())
     assert runtime.supervisor.state == State.STOPPED
+
+
+def check_at(runtime, now):
+    runtime.actuator = (now, {"fault": None, "manual_override": False, "deadman_held": True})
+    runtime.check_faults(now)
+
+
+def test_a_car_that_does_not_follow_the_speed_command_is_stopped_with_the_numbers():
+    runtime = mapping_stub(session=3, mapping_session="boot-1")
+    runtime.last_command_speed, runtime.odom_speed = 0.8, 0.05
+    now = time.monotonic()
+    check_at(runtime, now)
+    assert runtime.supervisor.state == State.MAPPING
+    check_at(runtime, now + 6.5)
+    assert runtime.supervisor.state == State.STOPPED
+    assert "commanded 0.80 m/s" in runtime.supervisor.reasons[0]
+
+
+def test_a_car_that_follows_the_command_is_not_stopped_by_the_stall_check():
+    runtime = mapping_stub(session=3, mapping_session="boot-1")
+    runtime.last_command_speed, runtime.odom_speed = 0.8, 0.75
+    now = time.monotonic()
+    check_at(runtime, now)
+    check_at(runtime, now + 30)
+    assert runtime.supervisor.state == State.MAPPING
