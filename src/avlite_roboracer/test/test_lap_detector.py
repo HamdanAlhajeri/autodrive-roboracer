@@ -143,3 +143,63 @@ def test_lap_count_must_be_a_positive_whole_number():
     for bad in (0, -1, 2.5, True):
         with pytest.raises(ValueError):
             LapSettings(laps=bad)
+
+
+def room_scan(pose, mount=(0.2, 0.0, 0.0), box=(-4.0, -3.0, 5.0, 4.0), beams=720):
+    """Ranges of a laser at base_link `pose` inside a rectangular room with a stub on one wall."""
+    from avlite_roboracer.geometry import compose
+    x, y, yaw = compose(pose, mount)
+    angles = np.linspace(-math.pi, math.pi, beams, endpoint=False)
+    ranges = []
+    for a in angles:
+        dx, dy = math.cos(yaw + a), math.sin(yaw + a)
+        hits = []
+        for wall, axis, delta in ((box[0], 0, dx), (box[2], 0, dx), (box[1], 1, dy),
+                                  (box[3], 1, dy)):
+            origin = (x, y)[axis]
+            if abs(delta) > 1e-9 and (wall - origin) / delta > 0:
+                hits.append((wall - origin) / delta)
+        ranges.append(min(hits))
+    return ranges
+
+
+SCAN_INFO = (-math.pi, 2 * math.pi / 720, 0.05, 20.0)
+
+
+def test_pose_aligned_similarity_matches_the_same_place_seen_from_a_shifted_pose():
+    from avlite_roboracer.lap_detector import aligned_scan_similarity
+    mount = (0.2, 0.0, 0.0)
+    start, now = (0.0, 0.0, 0.0), (0.4, -0.3, math.radians(15))
+    a, b = room_scan(start), room_scan(now)
+    # beam by beam, the shifted and turned crossing looks like a different place ...
+    assert scan_similarity(b, a, 0.15) < 0.6
+    # ... but with the two poses the same walls line up.
+    assert aligned_scan_similarity((a, *SCAN_INFO), (b, *SCAN_INFO), start, now, mount,
+                                   0.15) > 0.9
+
+
+def test_pose_aligned_similarity_rejects_a_different_place():
+    from avlite_roboracer.lap_detector import aligned_scan_similarity
+    mount = (0.2, 0.0, 0.0)
+    here = room_scan((0.0, 0.0, 0.0))
+    elsewhere = room_scan((0.0, 0.0, 0.0), box=(-1.5, -1.0, 2.0, 1.5))
+    assert aligned_scan_similarity((here, *SCAN_INFO), (elsewhere, *SCAN_INFO),
+                                   (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), mount, 0.15) < 0.4
+
+
+def test_a_lap_is_counted_when_the_crossing_is_shifted_but_the_scene_is_the_same():
+    mount = (0.2, 0.0, 0.0)
+    detector = LapDetector(LapSettings(min_travel_m=0.5, laps=1), mount=mount)
+    start = (0.0, 0.0, 0.0)
+    detector.start(start, start, room_scan(start), SCAN_INFO)
+    detector.departed = True
+    before, after = (-0.2, -0.3, 0.26), (0.2, -0.3, 0.26)
+    detector.update(before, before, room_scan(before), SCAN_INFO)
+    assert detector.update(after, after, room_scan(after), SCAN_INFO) == "complete"
+    # without the poses-aware comparison this crossing is refused
+    plain = LapDetector(LapSettings(min_travel_m=0.5, laps=1))
+    plain.start(start, start, room_scan(start))
+    plain.departed = True
+    plain.update(before, before, room_scan(before))
+    assert plain.update(after, after, room_scan(after)) == "mapping"
+    assert any("scan match" in r for r in plain.rejected_crossings)

@@ -510,7 +510,8 @@ class Runtime:
             return False
         state = self.supervisor.state
         if state == State.MAPPING and self.lap_active:
-            result = self.lap.update(map_pose[:3], odom_pose[:3], list(scan.ranges))
+            result = self.lap.update(map_pose[:3], odom_pose[:3], list(scan.ranges),
+                                     self.scan_info(scan))
             self.log_lap_progress(map_pose)
             if result == "complete":
                 self.supervisor.lap_completed(now)
@@ -610,6 +611,10 @@ class Runtime:
                 self.stop_slam()
                 self.grid = self.icp = None
 
+    @staticmethod
+    def scan_info(scan):
+        return (scan.angle_min, scan.angle_increment, scan.range_min, scan.range_max)
+
     def log_lap_progress(self, map_pose):
         """Say why the finish line did not count (25 Nov: six laps, none confirmed, no trace)."""
         crossings = self.lap.rejected_crossings
@@ -682,7 +687,7 @@ class Runtime:
         self.mapper = AutoDRIVEFollowTheGap(
             racing=mapping_racing_config(self.race_config, self.profile))
         self.speed = SpeedDemand(self.profile.get("limits.mapping_speed_mps"))
-        self.lap = LapDetector(self.lap_settings)
+        self.lap = LapDetector(self.lap_settings, mount=self.profile.laser_mount)
         self.lap_started = False
         self.lap_rejections_logged = 0
         self.mapping_session = self.supervisor.session
@@ -725,7 +730,8 @@ class Runtime:
                                  for p in (map_pose, odom_pose)))
                 if not fresh:
                     return CommandSource.MAPPING, 0.0, 0.0  # wait for SLAM's first pose
-                self.lap.start(map_pose[:3], odom_pose[:3], list(self.scan.ranges))
+                self.lap.start(map_pose[:3], odom_pose[:3], list(self.scan.ranges),
+                               self.scan_info(self.scan))
                 self.lap_started = True
             cmd = self.mapper.control(EgoState(x=0.0, y=0.0, theta=0.0,
                                                velocity=self.odom_speed),

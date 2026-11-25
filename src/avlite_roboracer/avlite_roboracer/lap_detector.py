@@ -18,8 +18,8 @@ import math
 
 import numpy as np
 
-from .geometry import relative, wrap_angle
-from .localization import motion_mismatch
+from .geometry import compose, relative, wrap_angle
+from .localization import motion_mismatch, scan_points, transform_points
 
 
 @dataclass(frozen=True)
@@ -67,9 +67,36 @@ def scan_similarity(a, b, tolerance_m):
     return float(agree.sum() / (both.sum() + 0.5 * one_sided))
 
 
+def aligned_scan_similarity(start_scan, now_scan, start_pose, now_pose, mount, tolerance_m):
+    """Fraction of scan points that coincide once both scans are put in one frame.
+
+    The beam-by-beam comparison above needs the car to cross the line at the start pose and
+    heading. On the 1.4 m wide real track it crossed 0.4 m and up to 19 degrees off and scored
+    0.08 to 0.51 against 0.6 (25 Nov), although the place was the same. Here each scan is turned
+    into points and the later one is moved into the first one's frame with the two map poses,
+    so a shifted or turned crossing still matches, while a different place does not.
+
+    Each scan is (ranges, angle_min, angle_increment, range_min, range_max); poses are base_link
+    in the map frame; mount is the laser pose in base_link. The result is the mean of the two
+    directions (start points near a later point, later points near a start point).
+    """
+    from scipy.spatial import cKDTree
+    a = scan_points(*start_scan)
+    b = scan_points(*now_scan)
+    if len(a) < 10 or len(b) < 10:
+        return 0.0
+    relative_pose = relative(compose(start_pose, mount), compose(now_pose, mount))
+    b = transform_points(b, relative_pose)
+    near_a = (cKDTree(a).query(b)[0] <= tolerance_m).mean()
+    near_b = (cKDTree(b).query(a)[0] <= tolerance_m).mean()
+    return float((near_a + near_b) / 2)
+
+
 class LapDetector:
-    def __init__(self, settings=None):
+    def __init__(self, settings=None, mount=None):
         self.settings = settings or LapSettings()
+        self.mount = tuple(mount) if mount is not None else None
+        self.start_scan_info = None
         self.start_pose = None
         self.start_scan = None
         self.state = "idle"
@@ -81,10 +108,15 @@ class LapDetector:
         self.rejected_crossings = []
         self._previous = None
 
-    def start(self, map_pose, odom_pose, scan_ranges):
-        """Record the start pose (defining finish line and direction) and reference scan."""
+    def start(self, map_pose, odom_pose, scan_ranges, scan_info=None):
+        """Record the start pose (defining finish line and direction) and reference scan.
+
+        scan_info = (angle_min, angle_increment, range_min, range_max) of the scan; with it and
+        the laser mount the finish line is judged by the pose-aligned scan comparison.
+        """
         self.start_pose = tuple(map_pose)
         self.start_scan = list(scan_ranges)
+        self.start_scan_info = tuple(scan_info) if scan_info is not None else None
         self.state = "mapping"
         self.travel_m = 0.0
         self.lap_travel_m = 0.0
@@ -99,7 +131,7 @@ class LapDetector:
         local = relative(self.start_pose, pose)
         return local[0], local[1]
 
-    def update(self, map_pose, odom_pose, scan_ranges):
+    def update(self, map_pose, odom_pose, scan_ranges, scan_info=None):
         """Process one localized update; return 'complete', 'mapping' or 'failed'.
 
         'complete' means the last of the configured laps has been confirmed.
@@ -139,7 +171,12 @@ class LapDetector:
         if abs(wrap_angle(map_pose[2] - self.start_pose[2])) > s.heading_tolerance_rad:
             self.rejected_crossings.append("heading does not match the start")
             return self.state
-        match = scan_similarity(scan_ranges, self.start_scan, s.scan_match_tolerance_m)
+        if self.mount is not None and scan_info is not None and self.start_scan_info is not None:
+            match = aligned_scan_similarity(
+                (self.start_scan, *self.start_scan_info), (list(scan_ranges), *scan_info),
+                self.start_pose, tuple(map_pose), self.mount, s.scan_match_tolerance_m)
+        else:
+            match = scan_similarity(scan_ranges, self.start_scan, s.scan_match_tolerance_m)
         if match < s.min_scan_match:
             self.rejected_crossings.append(f"scan match {match:.2f} below {s.min_scan_match}")
             return self.state
