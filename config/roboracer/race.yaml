@@ -53,6 +53,9 @@ localization:
 # give loop closure more revisits for a cleaner map.
 mapping:
   laps: 3
+  # SLAM Toolbox starts at this nice level (0 = normal). Its start-up burst on the Jetson's 4 cores
+  # paused the supervisor and actuator for about 0.35 s, which trips their 0.25 s timeouts.
+  slam_nice: 5
 # Follow the Gap during the mapping lap uses c30_control with the mapping speed from
 # hardware.yaml. These racing values apply only to its gap selection and braking model.
 racing:

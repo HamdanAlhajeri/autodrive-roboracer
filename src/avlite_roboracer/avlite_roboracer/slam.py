@@ -52,11 +52,17 @@ def effective_parameters(base_file, profile, mode, output, map_file=None, start_
 class SlamProcess:
     """Own one `ros2 launch slam_toolbox ...` process group."""
 
-    def __init__(self, log_dir):
+    def __init__(self, log_dir, nice=0):
+        """nice > 0 starts SLAM at a lower CPU priority, so its start-up burst on a small CPU
+        cannot starve the supervisor and actuator (their 0.25 s timeouts fired 25 Nov)."""
         self.log_dir = Path(log_dir)
+        self.nice = int(nice)
         self.process = None
         self.mode = None
         self._log = None
+
+    def _lower_priority(self):
+        os.nice(self.nice)  # runs in the child before exec
 
     @property
     def running(self):
@@ -76,7 +82,8 @@ class SlamProcess:
                    f"slam_params_file:={params_file}",
                    f"use_sim_time:={'true' if use_sim_time else 'false'}"]
         self.process = subprocess.Popen(command, stdout=self._log, stderr=subprocess.STDOUT,
-                                        start_new_session=True, env=env)
+                                        start_new_session=True, env=env,
+                                        preexec_fn=self._lower_priority if self.nice > 0 else None)
         self.mode = mode
 
     def stop(self, timeout_s=10.0):

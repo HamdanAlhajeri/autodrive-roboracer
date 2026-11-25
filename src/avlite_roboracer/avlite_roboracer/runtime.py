@@ -127,7 +127,8 @@ class Runtime:
         self.slam_stopped_at = -math.inf
         self.last_graph_check = -math.inf
 
-        self.slam = SlamProcess(self.data_dir / "logs")
+        self.slam = SlamProcess(self.data_dir / "logs",
+                                nice=mapping.get("slam_nice", 0))
         self.arbiter = CommandArbiter(profile.get("timing.command_timeout_s"))
         self.speed = SpeedDemand(0.0)
         self.lap = LapDetector()
