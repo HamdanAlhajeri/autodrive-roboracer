@@ -132,6 +132,7 @@ class Runtime:
         self.speed = SpeedDemand(0.0)
         self.lap = LapDetector()
         self.lap_started = False
+        self.lap_rejections_logged = 0
         self.mapping_session = None  # the session start_mapping last set up
         self.stopping_after_lap = False
         self.stopped_since = None
@@ -509,6 +510,7 @@ class Runtime:
         state = self.supervisor.state
         if state == State.MAPPING and self.lap_active:
             result = self.lap.update(map_pose[:3], odom_pose[:3], list(scan.ranges))
+            self.log_lap_progress(map_pose)
             if result == "complete":
                 self.supervisor.lap_completed(now)
             elif result == "failed":
@@ -607,6 +609,16 @@ class Runtime:
                 self.stop_slam()
                 self.grid = self.icp = None
 
+    def log_lap_progress(self, map_pose):
+        """Say why the finish line did not count (25 Nov: six laps, none confirmed, no trace)."""
+        crossings = self.lap.rejected_crossings
+        for reason in crossings[self.lap_rejections_logged:]:
+            self.node.get_logger().warning(
+                f"Finish line crossed but not counted: {reason} (map pose x={map_pose[0]:.2f} "
+                f"y={map_pose[1]:.2f} yaw={map_pose[2]:.2f}; lap travel "
+                f"{self.lap.lap_travel_m:.1f} m, laps done {self.lap.laps_completed})")
+        self.lap_rejections_logged = len(crossings)
+
     def rescue_and_stop_mapping(self):
         """A mapping session ended before its lap was confirmed: keep what SLAM has built.
 
@@ -615,6 +627,12 @@ class Runtime:
         responsive, then stop that same SLAM process.
         """
         process = self.slam.process
+        try:
+            if self.lap_active:
+                (self.session_dir / "lap.json").write_text(
+                    json.dumps(self.lap.summary(), default=str, indent=2))
+        except OSError as exc:
+            self.node.get_logger().warning(f"Could not write lap.json: {exc!r}")
         threading.Thread(target=self._rescue_map, args=(process, self.session_dir),
                          daemon=True).start()
 
@@ -665,6 +683,7 @@ class Runtime:
         self.speed = SpeedDemand(self.profile.get("limits.mapping_speed_mps"))
         self.lap = LapDetector(self.lap_settings)
         self.lap_started = False
+        self.lap_rejections_logged = 0
         self.mapping_session = self.supervisor.session
         self.stopping_after_lap = False
         params = effective_parameters(self.slam_params, self.profile, "mapping",

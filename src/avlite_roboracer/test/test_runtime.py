@@ -234,3 +234,18 @@ def test_a_failed_save_still_stops_slam_and_a_newer_slam_process_is_left_alone(m
     newer.slam.process = "a-newer-process"   # a new session started its own SLAM meanwhile
     newer._rescue_map("the-slam-process", tmp_path)
     newer.stop_slam.assert_not_called()
+
+
+def test_lap_progress_logs_each_rejected_finish_line_crossing_once():
+    runtime = runtime_stub()
+    runtime.lap = SimpleNamespace(rejected_crossings=["heading does not match the start"],
+                                  lap_travel_m=17.2, laps_completed=0)
+    runtime.lap_rejections_logged = 0
+    runtime.log_lap_progress((1.0, 0.5, 0.3))
+    runtime.log_lap_progress((1.0, 0.5, 0.3))
+    warnings = runtime.node.get_logger().warning.call_args_list
+    assert len(warnings) == 1
+    assert "heading does not match the start" in warnings[0].args[0]
+    runtime.lap.rejected_crossings.append("scan match 0.41 below 0.6")
+    runtime.log_lap_progress((1.0, 0.5, 0.3))
+    assert len(runtime.node.get_logger().warning.call_args_list) == 2
