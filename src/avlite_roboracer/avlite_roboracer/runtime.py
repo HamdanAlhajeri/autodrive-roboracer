@@ -629,7 +629,7 @@ class Runtime:
         """
         process = self.slam.process
         try:
-            if self.lap_active:
+            if self.lap_started and self.lap.start_pose is not None:
                 (self.session_dir / "lap.json").write_text(
                     json.dumps(self.lap.summary(), default=str, indent=2))
         except OSError as exc:
