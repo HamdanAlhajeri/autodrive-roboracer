@@ -600,12 +600,41 @@ class Runtime:
                 self.arbiter.release()
                 self.speed.reset()
                 if self.slam.mode == "mapping":
-                    self.stop_slam()
+                    self.rescue_and_stop_mapping()
             elif action == Action.ABORT_FINALIZE:
                 # The worker checks this under the same lock before switching processes.
                 self.finalize_cancel.set()
                 self.stop_slam()
                 self.grid = self.icp = None
+
+    def rescue_and_stop_mapping(self):
+        """A mapping session ended before its lap was confirmed: keep what SLAM has built.
+
+        Stopping SLAM Toolbox threw the map of a 261 s lap away on 25 Nov. Save the pose graph and
+        the occupancy grid next to the session first, in a thread so the supervisor stays
+        responsive, then stop that same SLAM process.
+        """
+        process = self.slam.process
+        threading.Thread(target=self._rescue_map, args=(process, self.session_dir),
+                         daemon=True).start()
+
+    def _rescue_map(self, process, session_dir):
+        cancel = threading.Event()
+        try:
+            from slam_toolbox.srv import SaveMap, SerializePoseGraph
+            self._call(cancel, SerializePoseGraph, "/slam_toolbox/serialize_map",
+                       SerializePoseGraph.Request(filename=str(session_dir / "posegraph-partial")),
+                       timeout_s=8.0)
+            request = SaveMap.Request()
+            request.name.data = str(session_dir / "map-partial")
+            self._call(cancel, SaveMap, "/slam_toolbox/save_map", request, timeout_s=8.0)
+            self.node.get_logger().info(f"Saved the unfinished map to {session_dir}/map-partial*")
+        except Exception as exc:  # best effort: the car is already stopped
+            self.node.get_logger().warning(f"Could not save the unfinished map: {exc!r}")
+        finally:
+            with self.lock:
+                if self.slam.process is process:  # not replaced by a newer SLAM process
+                    self.stop_slam()
 
     def start_mapping(self, now):
         began = time.monotonic()

@@ -185,3 +185,52 @@ def test_odometry_stats_count_arrivals_rejections_and_the_longest_gap():
     text = runtime.odom_stats_text()
     assert "odometry seen 3" in text and "rejected as stale or out of order 1" in text
     assert "longest gap between accepted messages 0.3" in text
+
+
+def rescue_stub():
+    runtime = runtime_stub()
+    runtime.stop_slam = Mock()
+    runtime.slam = SimpleNamespace(process="the-slam-process", mode="mapping")
+    runtime.calls = []
+    runtime._call = lambda cancel, srv, name, request, timeout_s=30.0: runtime.calls.append(name)
+    return runtime
+
+
+def fake_slam_services(monkeypatch):
+    import sys
+    from types import ModuleType
+    srv = ModuleType("slam_toolbox.srv")
+
+    class Request:
+        def __init__(self, filename=None):
+            self.filename = filename
+            self.name = SimpleNamespace(data=None)
+
+    srv.SaveMap = srv.SerializePoseGraph = type("S", (), {"Request": Request})
+    monkeypatch.setitem(sys.modules, "slam_toolbox", ModuleType("slam_toolbox"))
+    monkeypatch.setitem(sys.modules, "slam_toolbox.srv", srv)
+
+
+def test_a_stopped_mapping_session_saves_its_unfinished_map_then_stops_slam(monkeypatch, tmp_path):
+    fake_slam_services(monkeypatch)
+    runtime = rescue_stub()
+    runtime._rescue_map("the-slam-process", tmp_path)
+    assert runtime.calls == ["/slam_toolbox/serialize_map", "/slam_toolbox/save_map"]
+    runtime.stop_slam.assert_called_once()
+
+
+def test_a_failed_save_still_stops_slam_and_a_newer_slam_process_is_left_alone(monkeypatch,
+                                                                              tmp_path):
+    fake_slam_services(monkeypatch)
+    runtime = rescue_stub()
+
+    def broken(*args, **kwargs):
+        raise TimeoutError("save_map timed out")
+
+    runtime._call = broken
+    runtime._rescue_map("the-slam-process", tmp_path)
+    runtime.stop_slam.assert_called_once()
+    newer = rescue_stub()
+    newer.slam.process = "a-newer-process"   # a new session started its own SLAM meanwhile
+    newer._rescue_map("the-slam-process", tmp_path)
+    newer.stop_slam.assert_not_called()
