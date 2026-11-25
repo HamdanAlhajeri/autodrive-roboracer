@@ -154,3 +154,34 @@ def test_the_mapping_pose_check_still_stops_a_session_whose_lap_has_started():
     assert runtime.lap_active
     runtime.check_faults(time.monotonic())
     assert runtime.supervisor.state == State.STOPPED
+
+
+def odom_msg(stamp_ns, speed=0.0):
+    twist = SimpleNamespace(linear=SimpleNamespace(x=speed))
+    return SimpleNamespace(
+        header=SimpleNamespace(stamp=SimpleNamespace(sec=stamp_ns // 10**9,
+                                                     nanosec=stamp_ns % 10**9)),
+        twist=SimpleNamespace(twist=twist))
+
+
+def test_odometry_stats_count_arrivals_rejections_and_the_longest_gap():
+    runtime = Runtime.__new__(Runtime)
+    runtime.lock = threading.RLock()
+    runtime.profile = commissioned_profile()
+    runtime.node = Mock()
+    runtime.last_odom_stamp = None
+    runtime.odom_time = -float("inf")
+    runtime.reset_scan_stats()
+    assert runtime.odom_stats_text() == "no odometry seen since the session started"
+    clock = {"ns": 10_000_000_000}
+    runtime.node.get_clock.return_value.now.return_value.nanoseconds = clock["ns"]
+    runtime.on_odom(odom_msg(clock["ns"], 0.3))                  # accepted
+    runtime.on_odom(odom_msg(clock["ns"] - 5_000_000_000))       # far too old: rejected
+    runtime.odom_time -= 0.31                                    # the next one comes 0.31 s later
+    runtime.on_odom(odom_msg(clock["ns"] + 1_000_000))
+    stats = runtime.odom_stats
+    assert (stats["seen"], stats["rejected"]) == (3, 1)
+    assert stats["gap_max_s"] >= 0.3
+    text = runtime.odom_stats_text()
+    assert "odometry seen 3" in text and "rejected as stale or out of order 1" in text
+    assert "longest gap between accepted messages 0.3" in text

@@ -205,7 +205,10 @@ class Runtime:
 
     def reset_scan_stats(self):
         """Counters for the stale-LiDAR diagnosis: scans seen, rejected, and header-stamp lag."""
-        self.scan_stats = {"seen": 0, "rejected": 0, "lag_last_s": None, "lag_max_s": 0.0}
+        self.scan_stats = {"seen": 0, "rejected": 0, "lag_last_s": None, "lag_max_s": 0.0,
+                           "gap_max_s": 0.0}
+        self.odom_stats = {"seen": 0, "rejected": 0, "lag_last_s": None, "lag_max_s": 0.0,
+                           "gap_max_s": 0.0}
 
     def scan_stats_text(self):
         stats = getattr(self, "scan_stats", None)
@@ -213,7 +216,17 @@ class Runtime:
             return "no scans seen since the session started"
         return (f"scans seen {stats['seen']}, rejected as stale or out of order "
                 f"{stats['rejected']}, stamp lag last {stats['lag_last_s']:.3f} s "
-                f"max {stats['lag_max_s']:.3f} s")
+                f"max {stats['lag_max_s']:.3f} s, longest gap between accepted scans "
+                f"{stats.get('gap_max_s', 0.0):.3f} s")
+
+    def odom_stats_text(self):
+        stats = getattr(self, "odom_stats", None)
+        if not stats or not stats["seen"]:
+            return "no odometry seen since the session started"
+        return (f"odometry seen {stats['seen']}, rejected as stale or out of order "
+                f"{stats['rejected']}, stamp lag last {stats['lag_last_s']:.3f} s "
+                f"max {stats['lag_max_s']:.3f} s, longest gap between accepted messages "
+                f"{stats['gap_max_s']:.3f} s")
 
     def on_scan(self, msg):
         with self.lock:
@@ -229,20 +242,36 @@ class Runtime:
                 return
             self.last_scan_stamp = stamp
             self.scan = msg
-            self.scan_time = time.monotonic()
+            arrived = time.monotonic()
+            if math.isfinite(self.scan_time) and getattr(self, "scan_stats", None):
+                self.scan_stats["gap_max_s"] = max(self.scan_stats["gap_max_s"],
+                                                   arrived - self.scan_time)
+            self.scan_time = arrived
             self.pending_scans.append((self.scan_time, msg))
 
     def on_odom(self, msg):
         speed = msg.twist.twist.linear.x
         with self.lock:
             stamp = msg.header.stamp.sec * 10**9 + msg.header.stamp.nanosec
+            now_ns = self.node.get_clock().now().nanoseconds
+            stats = getattr(self, "odom_stats", None)
+            if stats is not None:
+                lag = (now_ns - stamp) * 1e-9
+                stats["seen"] += 1
+                stats["lag_last_s"] = lag
+                stats["lag_max_s"] = max(stats["lag_max_s"], lag)
             if not math.isfinite(speed) or not sensor_stamp_is_fresh(
-                    stamp, self.last_odom_stamp, self.node.get_clock().now().nanoseconds,
+                    stamp, self.last_odom_stamp, now_ns,
                     self.profile.get("timing.sensor_timeout_s")):
+                if stats is not None:
+                    stats["rejected"] += 1
                 return
             self.last_odom_stamp = stamp
             self.odom_speed = speed
-            self.odom_time = time.monotonic()
+            arrived = time.monotonic()
+            if math.isfinite(self.odom_time) and stats is not None:
+                stats["gap_max_s"] = max(stats["gap_max_s"], arrived - self.odom_time)
+            self.odom_time = arrived
 
     def on_actuator(self, msg):
         try:
@@ -514,7 +543,7 @@ class Runtime:
             if not (0 <= scan_age <= timeout and 0 <= odom_age <= timeout):
                 self.supervisor.fault(f"stale LiDAR or odometry (scan {scan_age:.3f} s, "
                                       f"odometry {odom_age:.3f} s, limit {timeout} s; "
-                                      f"{self.scan_stats_text()}; ticks: "
+                                      f"{self.scan_stats_text()}; {self.odom_stats_text()}; ticks: "
                                       f"{self.tick_stats.text()})", now)
             elif actuator:
                 self.supervisor.fault("; ".join(actuator), now)
