@@ -9,10 +9,10 @@ inputs the real car provides:
 - TF ``odom -> base_link`` and a static ``base_link -> laser`` at the simulator's LiDAR mount;
 - the LiDAR scan republished on ``/autodrive/roboracer_1/scan`` in the ``laser`` frame.
 
-These car-style frames form a tree separate from the simulator's ``world`` tree, so a frame
-never has two parents. The node reads the true pose once, only to log where in the world its
-odometry started: that is ``localization.map_origin_world`` when this run is used for mapping. Optional speed-scale and gyro-bias errors make the sim's ideal sensors
-drift like real ones.
+These car-style frames form a tree separate from the simulator's ``world`` tree, so a frame never
+has two parents. The node reads the true pose once, only to log where in the world its odometry
+started: that is ``localization.map_origin_world`` when this run is used for mapping. Optional
+speed-scale and gyro-bias errors make the sim's ideal sensors drift like real ones.
 
 Why speed comes from an IMU fusion (``--imu-fusion``): the simulated wheel encoders under-read the
 true speed by an amount that depends on acceleration (about 0.62 of true speed in hard braking,
@@ -52,11 +52,10 @@ def angle_delta(current, previous):
 class ClockRate:
     """Estimate simulated seconds per second of message time from displacement and speed.
 
-    The simulator reports speed per simulated second, while the stamps count wall-clock seconds. Over
-    a window, distance moved divided by (stamp time x mean reported speed) is the clock rate: 1.0 in
-    real time, about 0.5 when the simulator runs at half speed. A window is skipped when the car is
-    slow, or when the ratio is implausible (a teleport on reset, a stop against a wall).
-    """
+    The simulator reports speed per simulated second, while the stamps count wall-clock seconds.
+    Over a window, distance moved divided by (stamp time x mean reported speed) is the clock rate:
+    1.0 in real time, about 0.5 when the simulator runs at half speed. A window is skipped when the
+    car is slow, or when the ratio is implausible (a teleport on reset, a stop against a wall). """
 
     def __init__(self, window_s=0.5, min_speed=1.5, smoothing=0.2, low=0.2, high=1.5):
         self.window_s, self.min_speed, self.smoothing = window_s, min_speed, smoothing
@@ -84,7 +83,10 @@ class ClockRate:
         if mean_speed >= self.min_speed:
             ratio = math.hypot(x - self._start[1], y - self._start[2]) / (elapsed * mean_speed)
             if self.low <= ratio <= self.high:
-                self.rate = ratio if not self.known else self.rate + self.smoothing * (ratio - self.rate)
+                if self.known:
+                    self.rate += self.smoothing * (ratio - self.rate)
+                else:
+                    self.rate = ratio
                 self.known = True
         self._restart(t, x, y)
         return self.rate
@@ -108,10 +110,11 @@ class WheelOdometry:
             raise ValueError("wheel radius must be positive")
         self.wheel_radius = wheel_radius
         self.speed_scale = speed_scale
-        # IMU fusion: speed is integrated from the forward acceleration and pulled toward the scaled wheel
-        # speed with gain fusion_gain / (1 + (a / fusion_accel_ref)^2) per second, where a is the filtered
-        # acceleration. While cruising the wheels hold the speed; while braking or accelerating (wheels
-        # slip) the IMU carries it. Needs accel passed to update(); without it the wheels are used alone.
+        # IMU fusion: speed is integrated from the forward acceleration and pulled toward the scaled
+        # wheel speed with gain fusion_gain / (1 + (a / fusion_accel_ref)^2) per second, where a is
+        # the filtered acceleration. While cruising the wheels hold the speed; while braking or
+        # accelerating (wheels slip) the IMU carries it. Needs accel passed to update(); without it
+        # the wheels are used alone.
         if imu_fusion and not (fusion_gain > 0 and fusion_accel_ref > 0):
             raise ValueError("fusion gain and acceleration reference must be positive")
         self.imu_fusion = imu_fusion
@@ -140,19 +143,22 @@ class WheelOdometry:
         if self.angles is None or t <= self.time:
             self.angles, self.time = (left, right), t
             return False
-        dt = (t - self.time) * self.time_scale  # simulated time: speed and gyro rate are per sim second
+        # simulated time: speed and gyro rate are per sim second
+        dt = (t - self.time) * self.time_scale
         delta = angle_delta if self.wrapped else (lambda a, b: a - b)
         rotation = (delta(left, self.angles[0]) + delta(right, self.angles[1])) / 2
         raw_distance = rotation * self.wheel_radius
         distance = raw_distance * self.speed_scale
         if self.imu_fusion and accel is not None and math.isfinite(accel):
             wheel_speed = distance / dt
-            if self.fused_speed is None or dt > 0.5:  # first sample or a gap (respawn): restart from the wheels
+            # first sample or a gap (respawn): restart from the wheels
+            if self.fused_speed is None or dt > 0.5:
                 self.fused_speed, self.fused_accel = wheel_speed, 0.0
             else:
                 self.fused_accel += min(1.0, dt / 0.3) * (accel - self.fused_accel)
                 gain = self.fusion_gain / (1.0 + (self.fused_accel / self.fusion_accel_ref) ** 2)
-                self.fused_speed += accel * dt + min(1.0, gain * dt) * (wheel_speed - self.fused_speed)
+                pull = min(1.0, gain * dt) * (wheel_speed - self.fused_speed)
+                self.fused_speed += accel * dt + pull
             distance = self.fused_speed * dt
         self.yaw_rate = yaw_rate + self.yaw_rate_bias
         # Midpoint heading keeps a constant turn on its arc better than Euler steps.
@@ -182,15 +188,16 @@ def main(argv=None):
     parser.add_argument("--speed-scale", type=float, default=1.0,
                         help="Multiply encoder distance, e.g. 1.02 for a 2%% error")
     parser.add_argument("--imu-fusion", action="store_true",
-                        help="Carry the speed with the IMU forward acceleration while braking or accelerating "
-                             "(wheels under-read then), and use the scaled wheels while cruising")
+                        help="Carry the speed with the IMU forward acceleration while braking "
+                             "or accelerating (wheels under-read then), and use the scaled "
+                             "wheels while cruising")
     parser.add_argument("--yaw-rate-bias", type=float, default=0.0,
                         help="Add to the gyro yaw rate in rad/s, e.g. 0.004")
     parser.add_argument("--wrapped-encoders", action="store_true",
                         help="Encoder angles wrap each turn (default: cumulative radians)")
     parser.add_argument("--clock-rate", default="auto",
-                        help="Simulated seconds per wall second: 'auto' measures it, a number fixes it "
-                             "(1 = off, for a simulator that runs in real time)")
+                        help="Simulated seconds per wall second: 'auto' measures it, a number "
+                             "fixes it (1 = off, for a simulator that runs in real time)")
     options, ros_args = parser.parse_known_args(argv)
     fixed_rate = None if options.clock_rate == "auto" else float(options.clock_rate)
     if fixed_rate is not None and not (math.isfinite(fixed_rate) and fixed_rate > 0):
@@ -249,7 +256,8 @@ def main(argv=None):
             now = stamp.sec
             if clock.known and (not was_known or now - clock_log["t"] >= 30):
                 clock_log["t"] = now
-                node.get_logger().info(f"Simulator clock rate {clock.rate:.2f} simulated s per wall s")
+                node.get_logger().info(
+                    f"Simulator clock rate {clock.rate:.2f} simulated s per wall s")
 
     def on_imu(msg):
         latest["yaw_rate"] = float(msg.angular_velocity.z)
@@ -287,7 +295,8 @@ def main(argv=None):
     node.create_subscription(LaserScan, PREFIX + "/lidar", on_scan, qos_profile_sensor_data)
     node.get_logger().info(f"Wheel odometry on {ODOM_TOPIC}; scans relayed to {SCAN_TOPIC} "
                            f"(radius {options.wheel_radius} m, scale {options.speed_scale}, "
-                           f"gyro bias {options.yaw_rate_bias} rad/s, clock rate {options.clock_rate})")
+                           f"gyro bias {options.yaw_rate_bias} rad/s, "
+                           f"clock rate {options.clock_rate})")
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

@@ -80,7 +80,8 @@ def test_unknown_keys_bad_values_and_invalid_results_change_nothing(profile):
 
 
 def test_speeds_above_1_5_need_an_explicit_flag(profile):
-    set_values(profile, {"motor.max_command_speed_mps": 3.0, "measurements.stop_test_speed_mps": 3.0,
+    set_values(profile, {"motor.max_command_speed_mps": 3.0,
+                         "measurements.stop_test_speed_mps": 3.0,
                          "limits.racing_speed_mps": 1.0}, allow_fast=True)
     with pytest.raises(ValueError, match="allow-fast"):
         set_values(profile, {"limits.racing_speed_mps": 2.5})
@@ -107,7 +108,8 @@ def test_values_can_be_set_back_to_null_and_parse_value_is_strict():
 
 
 def test_cli_set_reports_each_change_and_rejects_cleanly(profile, capsys):
-    assert main(["--profile", str(profile), "set", "vehicle.wheelbase_m=0.33", "deadman.button=4"]) == 0
+    args = ["--profile", str(profile), "set", "vehicle.wheelbase_m=0.33", "deadman.button=4"]
+    assert main(args) == 0
     out = capsys.readouterr().out
     assert "set vehicle.wheelbase_m: null -> 0.33" in out and "set deadman.button: null -> 4" in out
     assert main(["--profile", str(profile), "set", "vehicle.wheelbase_m=-1"]) == 1
@@ -124,8 +126,10 @@ def test_commissioning_results_are_applied_but_only_measured_numbers(profile, tm
         "measurements.max_acceleration_mps2": None, "measurements.stop_test_speed_mps": 1.0,
         "measurements.stopping_distance_m": 0.45, "stop_events": 3}}))
     updates = commissioning_updates(result)
-    assert set(updates) == {"measurements.command_latency_s", "measurements.braking_deceleration_mps2",
-                            "measurements.stop_test_speed_mps", "measurements.stopping_distance_m"}
+    assert set(updates) == {"measurements.command_latency_s",
+                            "measurements.braking_deceleration_mps2",
+                            "measurements.stop_test_speed_mps",
+                            "measurements.stopping_distance_m"}
     assert main(["--profile", str(profile), "commissioning", str(result)]) == 0
     assert inspect(profile)["present"]["measurements.stopping_distance_m"] == 0.45
 

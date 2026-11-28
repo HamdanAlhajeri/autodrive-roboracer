@@ -1,9 +1,11 @@
-"""Fill in the hardware profile from the command line, so an agent or operator never hand-edits YAML.
+"""Fill in the hardware profile from the command line, so nobody hand-edits YAML.
 
     python -m avlite_roboracer.profile_edit set vehicle.wheelbase_m=0.33 steering.positive_left=true
     python -m avlite_roboracer.profile_edit commissioning stops.json
-    python -m avlite_roboracer.profile_edit laser-from-tf          # needs the F1TENTH bringup running
-    python -m avlite_roboracer.profile_edit deadman-from-joy       # operator holds the button when asked
+    # needs the F1TENTH bringup running
+    python -m avlite_roboracer.profile_edit laser-from-tf
+    # operator holds the button when asked
+    python -m avlite_roboracer.profile_edit deadman-from-joy
     python -m avlite_roboracer.profile_edit defaults-localization  # starting acceptance thresholds
 
 Every write is checked first: the key must already exist in the profile, the value must have
@@ -30,7 +32,8 @@ DEFAULT_PROFILE = Path(__file__).resolve().parents[3] / "config" / "roboracer" /
 
 # Keys beyond the autonomy measurements that may be set from here.
 EXTRA_KEYS = (
-    "steering.center_offset_rad", "topics.imu", "frames.imu", "deadman.timeout_s", "deadman.stop_on_press",
+    "steering.center_offset_rad", "topics.imu", "frames.imu", "deadman.timeout_s",
+    "deadman.stop_on_press",
     "localization.scan_alignment_tolerance_m", "localization.stable_duration_s",
     "timing.command_timeout_s", "timing.authorization_timeout_s",
     "timing.sensor_timeout_s", "timing.pose_timeout_s",
@@ -146,7 +149,8 @@ def set_values(path, updates, allow_fast=False, dry_run=False):
         if key in SPEED_KEYS and isinstance(value, (int, float)) and not isinstance(value, bool) \
                 and value > FAST_MPS and not allow_fast:
             raise ValueError(f"{key}={value} is above {FAST_MPS} m/s; the first autonomous tests "
-                             "stay at 1.0 m/s or less. Pass --allow-fast only with measured evidence.")
+                             "stay at 1.0 m/s or less. Pass --allow-fast only with measured "
+                             "evidence.")
         try:
             old = _replace_in_text(lines, key, format_value(value))
         except KeyError:
@@ -165,7 +169,7 @@ def set_values(path, updates, allow_fast=False, dry_run=False):
 
 
 def commissioning_updates(result_path):
-    """The profile values a commissioning analysis supports (keys with a measured, non-null value)."""
+    """The profile values a commissioning analysis supports (measured, non-null keys)."""
     data = json.loads(Path(result_path).read_text(encoding="utf-8"))
     suggested = data.get("suggested_profile", data)
     return {key: value for key, value in suggested.items()

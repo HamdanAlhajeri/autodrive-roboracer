@@ -40,7 +40,8 @@ def scan_from(pose, max_range=8.0, no_return_beams=60):
     cloud = np.zeros((len(points), 4), dtype=np.float32)
     cloud[:, :2] = points
     mask = np.r_[np.ones(len(local), bool), np.zeros(len(phantom), bool)]
-    return SimpleNamespace(lidar=cloud, lidar_hit_mask=mask, lidar_sensor=Lidar(base_to_sensor=MOUNT))
+    return SimpleNamespace(lidar=cloud, lidar_hit_mask=mask,
+                           lidar_sensor=Lidar(base_to_sensor=MOUNT))
 
 
 def block(**extra):
@@ -146,7 +147,7 @@ def test_recovery_settings_default_off_and_are_validated():
 
 
 def lost_localizer(**extra):
-    """A localizer whose estimate is 0.8 m from the car, with a match distance too tight to self-correct."""
+    """A localizer whose estimate is 0.8 m off, with a match distance too tight to fix it."""
     settings = avlite_localization_config(block(
         reference="map_hits", max_correspondence_m=0.15, lost_scans=2, recovery_interval_s=0.0,
         **extra))
@@ -214,7 +215,8 @@ def test_a_search_with_a_time_budget_tries_the_nearest_candidates_first_and_stop
     real_icp = localizer._icp
     localizer._icp = lambda *args: calls.append(args) or real_icp(*args)
     localizer.recover(scan, radius_m=3.0, budget_s=0.0)
-    assert len(calls) == 1  # the first candidate always runs, then the spent budget stops the search
+    # the first candidate always runs, then the spent budget stops the search
+    assert len(calls) == 1
     assert (calls[0][2], calls[0][3]) == (localizer._x, localizer._y)  # nearest first: no offset
     calls.clear()
     localizer.recover(scan, radius_m=1.0)  # no budget: the whole grid, 5 x 5 x 3 starts
@@ -222,7 +224,8 @@ def test_a_search_with_a_time_budget_tries_the_nearest_candidates_first_and_stop
 
 
 def odometry_localizer(limit):
-    settings = avlite_localization_config(block(reference="map_hits", odometry_max_accel_mps2=limit))
+    settings = avlite_localization_config(
+        block(reference="map_hits", odometry_max_accel_mps2=limit))
     pm = PerceptionModel(ego_vehicle=EgoState(x=0, y=0))
     clock = {"t": 0.0}
     odom = {"x": 0.0}
@@ -297,15 +300,16 @@ def test_pose_lead_moves_only_the_published_pose_forward_by_speed_times_lead():
     heading = (math.cos(localizer._theta), math.sin(localizer._theta))
     assert (ego.x - localizer._x, ego.y - localizer._y) == pytest.approx(
         (4.0 * 0.05 * heading[0], 4.0 * 0.05 * heading[1]), abs=1e-9)
-    assert math.hypot(localizer._x - SPAWN[0], localizer._y - SPAWN[1]) < 0.05  # ICP estimate is untouched
+    # ICP estimate is untouched
+    assert math.hypot(localizer._x - SPAWN[0], localizer._y - SPAWN[1]) < 0.05
     drive(localizer, [SPAWN] * 3)  # a second round does not stack the lead
     assert math.hypot(ego.x - localizer._x, ego.y - localizer._y) == pytest.approx(0.2, abs=1e-6)
     off = AutoDRIVELidarLocalization(PerceptionModel(ego_vehicle=EgoState(x=0, y=0)),
                                      avlite_localization_config(block(reference="map_hits")),
                                      lambda: 4.0, reference_points=walls())
     drive(off, [SPAWN] * 3)
-    assert (off.perception_model.ego_vehicle.x, off.perception_model.ego_vehicle.y) == pytest.approx(
-        (off._x, off._y))
+    ego = off.perception_model.ego_vehicle
+    assert (ego.x, ego.y) == pytest.approx((off._x, off._y))
     for bad in (-1, 1, True):
         with pytest.raises(ValueError, match="localization"):
             avlite_localization_config(block(pose_lead_s=bad))
@@ -325,5 +329,6 @@ def test_the_acceleration_limit_can_apply_only_during_the_launch():
     for _ in range(40):  # reach 5 m/s honestly, then cruise with a noisy speed spike
         advance(localizer, clock, odom, 0.25)
     clipped = localizer.odometry_clipped
-    assert advance(localizer, clock, odom, 0.40) == pytest.approx(0.40)  # a spike at cruise passes through
+    # a spike at cruise passes through
+    assert advance(localizer, clock, odom, 0.40) == pytest.approx(0.40)
     assert localizer.odometry_clipped == clipped

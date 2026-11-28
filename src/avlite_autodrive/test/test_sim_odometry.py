@@ -8,7 +8,8 @@ R = 0.05
 
 
 def drive(odometry, speed, yaw_rate, seconds, rate_hz=50, start=(0.0, 0.0, 0.0), accel=None):
-    """Feed cumulative wheel angles for a constant speed and turn rate (accel: the IMU reading, if any)."""
+    """Feed cumulative wheel angles for a constant speed and turn rate (accel: the IMU
+    reading, if any)."""
     left = right = 0.0
     t = 0.0
     odometry.update(left, right, yaw_rate, t, accel)
@@ -47,7 +48,8 @@ def test_imu_fusion_recovers_distance_when_wheels_under_read_while_braking():
     results = {}
     for fused in (False, True):
         odometry = WheelOdometry(R, 1.0, imu_fusion=fused)
-        # cruise 6 m/s for 2 s (wheels exact), then brake at 3 m/s^2 with the wheels reading 40 % low
+        # cruise 6 m/s for 2 s (wheels exact), then brake at 3 m/s^2 with the wheels reading 40 %
+        # low
         drive(odometry, 6.0, 0.0, 2.0, rate_hz=100, accel=0.0)
         x0 = odometry.x
         left_start = 6.0 / R * 2.0
@@ -62,7 +64,8 @@ def test_imu_fusion_recovers_distance_when_wheels_under_read_while_braking():
             odometry.update(left, right, 0.0, t, -3.0 if speed > 0 else 0.0)
         results[fused] = odometry.x - x0
         truth = (6.0 + 6.0 - 3.0 * 1.5) / 2 * 1.5 if truth is None else truth
-    assert results[False] == pytest.approx(0.6 * truth, rel=0.02)   # the wheels alone are 40 % short
+    # the wheels alone are 40 % short
+    assert results[False] == pytest.approx(0.6 * truth, rel=0.02)
     assert results[True] == pytest.approx(truth, rel=0.12)          # the IMU brings it close
 
 
@@ -144,7 +147,8 @@ def drive_slow_clock(odometry, speed, yaw_rate, seconds, rate, rate_hz=50):
 def test_speed_reads_low_on_a_slow_simulator_unless_the_clock_rate_is_applied():
     uncorrected = WheelOdometry(R)
     drive_slow_clock(uncorrected, 4.0, 0.0, 2.0, rate=0.5)
-    assert uncorrected.speed == pytest.approx(2.0)  # half the true 4 m/s: what the controller used to see
+    # half the true 4 m/s: what the controller used to see
+    assert uncorrected.speed == pytest.approx(2.0)
     corrected = WheelOdometry(R)
     corrected.time_scale = 0.5
     drive_slow_clock(corrected, 4.0, 0.0, 2.0, rate=0.5)
@@ -161,7 +165,7 @@ def test_gyro_integration_uses_simulated_time():
 
 
 def feed(clock, rate, speed, seconds, hz=30, start=(0.0, 0.0), t0=0.0):
-    """Truth samples from a car moving at ``speed`` simulated m/s while the clock runs at ``rate``."""
+    """Truth samples from a car moving at ``speed`` simulated m/s, clock running at ``rate``."""
     x, y = start
     t = t0
     for _ in range(int(seconds * hz)):
@@ -188,7 +192,8 @@ def test_clock_rate_follows_a_change_and_ignores_slow_driving_and_teleports():
     before = clock.rate
     t, x = feed(clock, 0.5, 0.3, 3.0, start=(x, 0.0), t0=t)   # standing still tells us nothing
     assert clock.rate == pytest.approx(before, abs=0.005)
-    clock.update(t + 0.03, x + 40.0, 0.0, 5.0)                  # a respawn teleport is not a clock reading
+    # a respawn teleport is not a clock reading
+    clock.update(t + 0.03, x + 40.0, 0.0, 5.0)
     t, x = feed(clock, 0.5, 5.0, 1.0, start=(x + 40.0, 0.0), t0=t + 0.03)
     assert clock.rate == pytest.approx(0.5, abs=0.02)
     t, x = feed(clock, 0.8, 5.0, 8.0, start=(x, 0.0), t0=t)    # the simulator gets faster

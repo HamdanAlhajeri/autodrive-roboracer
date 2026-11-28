@@ -32,7 +32,8 @@ def test_view_is_off_unless_enabled_and_settings_are_validated():
 
 
 def test_snapshot_reports_position_and_signed_wrapped_yaw_error():
-    shot = build_snapshot(2.0, (3.0, 4.0, -3.1), (0.0, 0.0, 3.1), alignment=0.9, hits=120, speed=2.5)
+    shot = build_snapshot(2.0, (3.0, 4.0, -3.1), (0.0, 0.0, 3.1), alignment=0.9, hits=120,
+                          speed=2.5)
     assert shot["err_m"] == pytest.approx(5.0)
     assert shot["yaw_err_rad"] == pytest.approx(2 * math.pi - 6.2, abs=1e-3)  # short way round
     assert shot["est"] == [3.0, 4.0, -3.1] and shot["truth"] == [0.0, 0.0, 3.1]
@@ -124,7 +125,8 @@ def test_task_publishes_estimate_and_truth_and_survives_failures():
 
     ego = SimpleNamespace(x=1.0, y=2.0, theta=0.1, velocity=3.0)
     truth = {"pose": (1.0, 2.5, 0.0)}
-    executer = SimpleNamespace(ego_state=ego, world=SimpleNamespace(true_pose=lambda: truth["pose"]))
+    world = SimpleNamespace(true_pose=lambda: truth["pose"])
+    executer = SimpleNamespace(ego_state=ego, world=world)
     task = PoseComparisonView(PoseViewConfig(port=0, host="127.0.0.1"),
                               localizer=SimpleNamespace(alignment=0.8, hits=50))
     try:

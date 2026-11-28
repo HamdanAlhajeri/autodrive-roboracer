@@ -126,7 +126,8 @@ def main():
         world.stack_capabilities |= frozenset({StackCapability.MAP_RACE_TRACK})
         # Without LOCALIZATION here AVLite runs the localization strategy, never ground truth.
         ExecutionSettings.c41_world_stack_capabilities = (
-            ["MAP_RACE_TRACK", "MAP_OCCUPANCY"] if localizer else ["LOCALIZATION", "MAP_RACE_TRACK"])
+            ["MAP_RACE_TRACK", "MAP_OCCUPANCY"] if localizer
+            else ["LOCALIZATION", "MAP_RACE_TRACK"])
         if localizer:
             # LidarLocalization requires MAP_OCCUPANCY; it builds its own reference map from
             # the first scan, so the flag only satisfies that declared requirement.

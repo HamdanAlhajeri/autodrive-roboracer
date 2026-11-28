@@ -118,7 +118,7 @@ class IcpPose:
         self._check_lost(sensors, now)
 
     def _check_lost(self, sensors, now):
-        """Count scans that fit the map badly; after lost_scans in a row, search for a better pose."""
+        """Count scans that fit the map badly; after lost_scans in a row, search for a pose."""
         alignment = self.alignment
         if alignment is None or alignment >= self.settings.lost_alignment:
             self.low_scans = 0

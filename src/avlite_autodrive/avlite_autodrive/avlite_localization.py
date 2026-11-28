@@ -60,14 +60,17 @@ class AvliteLocalizationConfig:
     lost_alignment: float = 0.5
     lost_scans: int = 5
     recovery_interval_s: float = 3.0  # at most one search this often (it takes a moment)
-    recovery_budget_s: float = 0.0    # 0 = search the whole radius; else stop after this long (nearest first)
-    # Wheel slip while launching makes the wheels turn faster than the car moves; wheel odometry then
-    # over-reports distance and ICP cannot correct it in a straight corridor. The odometry prediction
-    # may not move the estimate faster than the car can accelerate (0 = no limit).
+    # 0 = search the whole radius; else stop after this long (nearest first)
+    recovery_budget_s: float = 0.0
+    # Wheel slip while launching makes the wheels turn faster than the car moves; wheel odometry
+    # then over-reports distance and ICP cannot correct it in a straight corridor. The odometry
+    # prediction may not move the estimate faster than the car can accelerate (0 = no limit).
     odometry_max_accel_mps2: float = 0.0
-    odometry_limit_below_mps: float = 0.0  # apply that limit only below this speed (launch); 0 = at every speed
-    # The pose handed to the controller is moved forward by speed x pose_lead_s, to cover the delay between
-    # the scan being taken and the command it leads to (0 = off). The ICP's own estimate is not touched.
+    # apply that limit only below this speed (launch); 0 = at every speed
+    odometry_limit_below_mps: float = 0.0
+    # The pose handed to the controller is moved forward by speed x pose_lead_s, to cover the delay
+    # between the scan being taken and the command it leads to (0 = off). The ICP's own estimate is
+    # not touched.
     pose_lead_s: float = 0.0
 
 
@@ -95,6 +98,7 @@ def avlite_localization_config(config):
     reference = block.get("reference", "first_scan")
     if reference not in ("first_scan", "map_hits"):
         raise ValueError("localization.reference must be first_scan or map_hits")
+
     def number(name, default, low, high):
         value = block.get(name, default)
         if (isinstance(value, bool) or not isinstance(value, (int, float))
@@ -200,7 +204,8 @@ class AutoDRIVELidarLocalization(LidarLocalization):
         self._odom_speed = 0.0   # speed implied by the motion applied at the last prediction
         self.odometry_clipped = 0  # predictions shortened by the acceleration limit
         self._gap_search = False  # the next search follows a sensor gap: no time limit
-        self._after_gap = False  # the next update follows a sensor gap: do not trust odometry blindly
+        # the next update follows a sensor gap: do not trust odometry blindly
+        self._after_gap = False
         self.seed()
 
     def _nearest_neighbours(self, points, reference):
@@ -209,7 +214,8 @@ class AutoDRIVELidarLocalization(LidarLocalization):
         Overrides a hook called from AVLite's ICP (``c16_localization_algs``), so it has no
         caller in this repository.
         """
-        tree = self._tree if reference is self._map and self._tree is not None else cKDTree(reference)
+        cached = reference is self._map and self._tree is not None
+        tree = self._tree if cached else cKDTree(reference)
         dists, idx = tree.query(points)
         return idx, dists
 
@@ -252,7 +258,8 @@ class AutoDRIVELidarLocalization(LidarLocalization):
         allowed = (self._odom_speed + limit * dt) * dt
         below = self.settings.odometry_limit_below_mps
         if below > 0 and self._odom_speed >= below:
-            allowed = math.inf  # cruising: odometry is honest here, and clipping its noise only makes the estimate lag
+            # cruising: odometry is honest here, and clipping its noise only makes the estimate lag
+            allowed = math.inf
         if distance > allowed:
             dx, dy, distance = dx * allowed / distance, dy * allowed / distance, allowed
             self.odometry_clipped += 1
@@ -288,7 +295,7 @@ class AutoDRIVELidarLocalization(LidarLocalization):
                 ego.y = self._y + speed * lead * math.sin(self._theta)
 
     def _check_lost(self, sensors):
-        """After lost_scans badly aligned scans in a row, search around the estimate for a better pose."""
+        """After lost_scans badly aligned scans in a row, search for a better pose."""
         cfg = self.settings
         if cfg.recovery_radius_m <= 0 or self.alignment is None:
             return
@@ -307,9 +314,11 @@ class AutoDRIVELidarLocalization(LidarLocalization):
         self._gap_search = False
         found = self.recover(sensors, radius_m=cfg.recovery_radius_m, accept=cfg.recovery_accept,
                              budget_s=budget)
-        logging.info("Localization lost (alignment %.2f): searched %.1f m around the estimate in %.2f s, %s",
+        logging.info("Localization lost (alignment %.2f): searched %.1f m around the estimate "
+                     "in %.2f s, %s",
                      low, cfg.recovery_radius_m, time.monotonic() - started,
-                     "found a fit %.1f m away" % math.hypot(self._x - before[0], self._y - before[1])
+                     "found a fit %.1f m away"
+                     % math.hypot(self._x - before[0], self._y - before[1])
                      if found else "no fit good enough")
         if found:
             self.recoveries += 1
@@ -376,7 +385,8 @@ class AutoDRIVELidarLocalization(LidarLocalization):
         from each and keeps the best-aligned result. Ties go to the pose closest to the
         current estimate, so a featureless corridor does not move the car for nothing.
         Only a result aligned at least ``accept`` is adopted. Candidates are tried nearest first,
-        and with ``budget_s`` the search stops after that many seconds (the control loop waits for it).
+        and with ``budget_s`` the search stops after that many seconds (the control loop waits
+        for it).
         """
         if self._tree is None or self._x is None:
             return False

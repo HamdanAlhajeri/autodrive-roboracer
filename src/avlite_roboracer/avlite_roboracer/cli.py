@@ -99,11 +99,13 @@ def authorize(client, session, laptop=None, period_s=0.2, laptop_timeout_s=0.5,
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=("status", "map-start", "map-load", "race-start", "stop"))
+    parser.add_argument("command",
+                        choices=("status", "map-start", "map-load", "race-start", "stop"))
     parser.add_argument("--session", help="Session shown by status; defaults to the current one")
     parser.add_argument("--heartbeat-stdin", action="store_true",
                         help="Authorize only while lines keep arriving on stdin (SSH use)")
-    parser.add_argument("--map-dir", help="map-load: saved session directory (map.yaml, racemap.json)")
+    parser.add_argument("--map-dir",
+                        help="map-load: saved session directory (map.yaml, racemap.json)")
     parser.add_argument("--start", nargs=3, type=float, metavar=("X", "Y", "YAW"),
                         help="map-load: the car's pose in the map frame (default: search the map)")
     parser.add_argument("--json", action="store_true")

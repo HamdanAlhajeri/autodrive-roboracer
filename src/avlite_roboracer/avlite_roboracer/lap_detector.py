@@ -8,10 +8,9 @@ The starting pose defines a finish line across the track. Mapping drives
 3. the car crosses the finish line forwards, by its own motion, with matching heading,
 4. the current scan resembles the scan recorded at the start.
 
-Departure and travel limits apply to each lap. Travel comes from odometry, not map poses, so a localization correction cannot add
-distance; a crossing during an update whose map motion disagrees with odometry (a
-correction) is ignored.
-"""
+Departure and travel limits apply to each lap. Travel comes from odometry, not map poses, so a
+localization correction cannot add distance; a crossing during an update whose map motion disagrees
+with odometry (a correction) is ignored. """
 
 from dataclasses import dataclass
 import math

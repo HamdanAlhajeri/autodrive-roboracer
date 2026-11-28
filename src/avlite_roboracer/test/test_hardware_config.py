@@ -106,7 +106,8 @@ def test_deadman_button_out_of_range_counts_as_released():
 
 
 def test_autonomy_requires_a_deadman_button():
-    assert "deadman.button" in commissioned_profile(**{"deadman.button": None}).missing_for_autonomy()
+    profile = commissioned_profile(**{"deadman.button": None})
+    assert "deadman.button" in profile.missing_for_autonomy()
     for bad in (-1, True, 1.5, "5"):
         with pytest.raises(ValueError, match="deadman.button"):
             commissioned_profile(**{"deadman.button": bad})
@@ -234,7 +235,8 @@ def test_commissioning_measures_latency_and_stopping():
     suggestion = result["suggested_profile"]
     assert suggestion["measurements.stop_test_speed_mps"] == pytest.approx(1.0)
     assert math.isfinite(suggestion["measurements.command_latency_s"])
-    # The car speeds up at 2 m/s^2 once it responds (the 0.02 per 10 ms step in the simulation above).
+    # The car speeds up at 2 m/s^2 once it responds (the 0.02 per 10 ms step in the simulation
+    # above).
     assert start["acceleration_mps2"] == pytest.approx(2.0, rel=0.1)
     assert suggestion["measurements.max_acceleration_mps2"] == pytest.approx(2.0, rel=0.1)
 
@@ -301,6 +303,7 @@ def test_deadman_fault_says_whether_the_button_was_released_or_the_joystick_went
 def hold_logic():
     """The hold-the-button mode (stop_on_press false); the shipped hardware.yaml uses the other."""
     return ActuatorLogic(commissioned_profile(**{"deadman.stop_on_press": False}))
+
 
 def stop_on_press_logic():
     return ActuatorLogic(commissioned_profile(**{"deadman.stop_on_press": True}))

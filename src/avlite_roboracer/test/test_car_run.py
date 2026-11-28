@@ -1,4 +1,4 @@
-"""tools/car-run.sh against a fake supervisor CLI: the order of commands, the refusals and the exit codes."""
+"""tools/car-run.sh against a fake supervisor CLI: command order, refusals and exit codes."""
 
 import os
 import shutil
@@ -19,13 +19,17 @@ state="$(cat "$d/state")"
 case "$1" in
   status)
     if [[ "${2:-}" == "--json" ]]; then
-      printf '{"state":"%s","session":"s1","reasons":%s,"actuator":{"deadman_held":%s},"session_dir":"/tmp/session","finalize_step":null}\\n' \\
+      fmt='{"state":"%s","session":"s1","reasons":%s,"actuator":{"deadman_held":%s},'
+      fmt+='"session_dir":"/tmp/session","finalize_step":null}\\n'
+      printf "$fmt" \\
         "$state" "$(cat "$d/reasons")" "$(cat "$d/deadman")"
     else echo "State:   $state   session s1"; fi ;;
   map-start)
-    [[ "$state" == IDLE || "$state" == STOPPED ]] || { echo "Rejected: map-start not allowed in $state" >&2; exit 1; }
+    [[ "$state" == IDLE || "$state" == STOPPED ]] || {
+      echo "Rejected: map-start not allowed in $state" >&2; exit 1; }
     echo MAPPING > "$d/state"; echo "mapping started; session s1. Ctrl+C to stop."
-    sleep 0.5; cat "$d/map_result" > "$d/state"; echo "Authorization ended: state FINALIZING" >&2; exit 0 ;;
+    sleep 0.5; cat "$d/map_result" > "$d/state"
+    echo "Authorization ended: state FINALIZING" >&2; exit 0 ;;
   race-start)
     [[ "$state" == READY ]] || { echo "Rejected: not ready" >&2; exit 1; }
     echo RACING > "$d/state"
@@ -36,7 +40,8 @@ case "$1" in
 esac
 """
 FAKE_CAR_DAY_OK = "#!/usr/bin/env bash\necho all good\nexit 0\n"
-FAKE_CAR_DAY_BAD = "#!/usr/bin/env bash\necho '  [FAIL] hardware profile not commissioned'\nexit 1\n"
+FAKE_CAR_DAY_BAD = ("#!/usr/bin/env bash\necho '  [FAIL] hardware profile not commissioned'\n"
+                    "exit 1\n")
 
 
 @pytest.fixture
@@ -48,10 +53,12 @@ def car(tmp_path):
     cli.chmod(cli.stat().st_mode | stat.S_IEXEC)
     car_day = tmp_path / "car-day.sh"
     car_day.write_text(FAKE_CAR_DAY_OK)
-    for name, text in (("state", "IDLE"), ("reasons", "[]"), ("deadman", "true"), ("map_result", "READY")):
+    for name, text in (("state", "IDLE"), ("reasons", "[]"), ("deadman", "true"),
+                       ("map_result", "READY")):
         (fake / name).write_text(text)
     race_yaml = tmp_path / "race.yaml"
-    race_yaml.write_text("planning:\n  max_velocity_mps: 1.5\nmapping:\n  laps: 3\nracing:\n  laps: 9\n")
+    race_yaml.write_text(
+        "planning:\n  max_velocity_mps: 1.5\nmapping:\n  laps: 3\nracing:\n  laps: 9\n")
 
     class Car:
         dir, cli_path, car_day_path, yaml = fake, cli, car_day, race_yaml
@@ -83,7 +90,8 @@ def test_happy_path_maps_then_races_for_the_set_time_then_stops(car):
     assert kinds[-1] in ("stop", "status")
     assert (car.dir / "state").read_text().strip() == "STOPPED"  # the race ended with a stop
     out = done.stdout
-    assert "Mapping" in out and "READY" in out and "Racing for 2 s" in out and "race time reached" in out
+    for text in ("Mapping", "READY", "Racing for 2 s", "race time reached"):
+        assert text in out
 
 
 def test_without_yes_and_without_a_terminal_nothing_moves(car):
@@ -144,7 +152,8 @@ def test_the_car_waits_for_the_dead_man_button_and_gives_up_if_it_is_never_held(
     car.set("deadman", "false")
     done = car.run("--yes", "--race-seconds", "1")
     assert done.returncode == 1
-    assert "Hold the joystick dead-man button" in done.stdout and "was not held within 2 s" in done.stdout
+    assert "Hold the joystick dead-man button" in done.stdout
+    assert "was not held within 2 s" in done.stdout
     assert car.motion_calls() == []  # never started mapping without the button
 
 
