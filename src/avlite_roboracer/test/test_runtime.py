@@ -219,8 +219,7 @@ def test_a_stopped_mapping_session_saves_its_unfinished_map_then_stops_slam(monk
     runtime.stop_slam.assert_called_once()
 
 
-def test_a_failed_save_still_stops_slam_and_a_newer_slam_process_is_left_alone(monkeypatch,
-                                                                              tmp_path):
+def test_a_failed_save_still_stops_slam_and_a_newer_process_is_left_alone(monkeypatch, tmp_path):
     fake_slam_services(monkeypatch)
     runtime = rescue_stub()
 

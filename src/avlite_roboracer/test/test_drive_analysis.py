@@ -1,7 +1,7 @@
 import math
 
-from avlite_roboracer.drive_analysis import (at_minimum_radius, report, speed_and_radius,
-                                              stalls)
+from avlite_roboracer.drive_analysis import (
+    at_minimum_radius, report, speed_and_radius, stalls)
 
 
 def straight(seconds, speed, dt=0.25, t0=0.0, x0=0.0):

@@ -1,4 +1,4 @@
-"""The car's throttle ramp (config/f1tenth/throttle_interpolator.py): slow to speed up, quick to stop."""
+"""The throttle ramp (config/f1tenth/throttle_interpolator.py): slow to speed up, quick to stop."""
 
 import importlib.util
 from pathlib import Path
